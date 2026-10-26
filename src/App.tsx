@@ -1,0 +1,1218 @@
+import { useState, useEffect, useRef } from 'react'
+import type { ReactNode } from 'react'
+import {
+  Dumbbell, Layers, Users, Plus, Minus, Search, X, Play, Pencil, Trash2, Copy, ClipboardCopy,
+  ChevronUp, ChevronDown, ChevronLeft, ChevronRight, MessageCircle, Image as ImageIcon, FileText,
+  Weight, Ruler, FolderPlus, LogOut, Paperclip, UserPlus, Save,
+} from 'lucide-react'
+
+/* =========================================================
+   TIPOS
+   ========================================================= */
+type Objetivo = 'HIPERTROFIA' | 'EMAGRECIMENTO' | 'FORÇA' | 'DEFINIÇÃO'
+type Grupo = string
+type Nivel = 'INICIANTE' | 'INTERMEDIÁRIO' | 'AVANÇADO'
+
+interface Aluno { id: string; nome: string; objetivo: Objetivo; peso: string; altura: string; whatsapp: string; observacoes: string }
+interface Exercicio {
+  id: string; nome: string; grupo: Grupo; foco: string; instrucoes: string
+  video_url: string | null; gif_url: string | null; equipamento: string
+}
+interface ExercicioFicha extends Exercicio { series: string; reps: string; carga: string; descanso: string }
+interface Ficha { id: string; alunoId: string; nome: string; data: string; exercicios: ExercicioFicha[]; templateId?: string }
+interface Template { id: string; nome: string; objetivo: Objetivo; nivel: Nivel; descricao: string; exercicios: ExercicioFicha[]; dataCriacao: string }
+
+const OBJETIVOS: Objetivo[] = ['HIPERTROFIA', 'EMAGRECIMENTO', 'FORÇA', 'DEFINIÇÃO']
+const NIVEIS: Nivel[] = ['INICIANTE', 'INTERMEDIÁRIO', 'AVANÇADO']
+const CATEGORIAS_INICIAIS: Grupo[] = ['Peito', 'Costas', 'Perna', 'Braço', 'Ombro', 'Core', 'Cardio']
+
+/* =========================================================
+   BIBLIOTECA DE 100 EXERCÍCIOS
+   [nome, grupo, foco, equipamento, instruções]
+   ========================================================= */
+const RAW: [string, string, string, string, string][] = [
+  // ---------- PEITO (15) ----------
+  ['Supino Reto Barra', 'Peito', 'Peitoral maior, deltoide anterior e tríceps', 'Barra e banco reto', 'Deite com os pés firmes no chão e as escápulas retraídas. Retire a barra do suporte, desça controlando até a linha do mamilo e empurre até estender os cotovelos sem travá-los.'],
+  ['Supino Inclinado Barra', 'Peito', 'Peitoral superior e deltoide anterior', 'Barra e banco inclinado (30°–45°)', 'Com o banco inclinado, desça a barra até a parte alta do peito mantendo os cotovelos a cerca de 45° do tronco e empurre de volta até a extensão.'],
+  ['Supino Declinado Barra', 'Peito', 'Peitoral inferior e tríceps', 'Barra e banco declinado', 'Prenda os pés no apoio, desça a barra de forma controlada até a parte baixa do peito e empurre sem projetar os ombros à frente.'],
+  ['Supino Reto Halteres', 'Peito', 'Peitoral maior e estabilizadores do ombro', 'Halteres e banco reto', 'Parta com os halteres alinhados ao peito, desça até sentir alongamento sem perder o controle e suba aproximando os halteres no topo.'],
+  ['Supino Inclinado Halteres', 'Peito', 'Peitoral superior', 'Halteres e banco inclinado', 'Banco a 30°–45°. Desça os halteres ao lado do peito, cotovelos semiabertos, e empurre em arco até quase juntá-los no topo.'],
+  ['Crucifixo Reto Halteres', 'Peito', 'Peitoral maior (alongamento e adução)', 'Halteres e banco reto', 'Com leve flexão nos cotovelos, abra os braços em arco até sentir alongamento no peito e retorne como se abraçasse uma árvore.'],
+  ['Crucifixo Inclinado Halteres', 'Peito', 'Peitoral superior', 'Halteres e banco inclinado', 'Mantenha os cotovelos levemente flexionados, abra os braços em arco amplo e retorne contraindo a parte alta do peito.'],
+  ['Crossover Polia Alta', 'Peito', 'Peitoral inferior e esterno', 'Polia dupla (crossover)', 'Em pé, com leve inclinação do tronco, puxe as manoplas em arco de cima para baixo até cruzá-las à frente do quadril e retorne devagar.'],
+  ['Crossover Polia Baixa', 'Peito', 'Peitoral superior', 'Polia dupla (crossover)', 'Com as polias na posição baixa, eleve as manoplas em arco até a altura do queixo, contraia o peito no topo e retorne controlando.'],
+  ['Peck Deck / Voador', 'Peito', 'Peitoral maior (adução)', 'Máquina peck deck', 'Ajuste o banco para que as mãos fiquem na altura do peito, junte os braços à frente contraindo o peitoral e retorne sem deixar o peso encostar.'],
+  ['Supino Máquina', 'Peito', 'Peitoral maior e tríceps', 'Máquina de supino', 'Ajuste o banco para que as pegadas fiquem na linha do peito, empurre até estender os braços e retorne controlando a fase negativa.'],
+  ['Flexão de Braço', 'Peito', 'Peitoral, tríceps e core', 'Peso corporal', 'Mãos um pouco além da largura dos ombros, corpo em linha reta da cabeça aos calcanhares. Desça até o peito quase tocar o chão e empurre.'],
+  ['Pullover Halter', 'Peito', 'Peitoral e grande dorsal', 'Halter e banco reto', 'Deitado transversalmente ao banco, segure o halter com as duas mãos, desça-o atrás da cabeça com cotovelos levemente flexionados e retorne sobre o peito.'],
+  ['Supino Fechado', 'Peito', 'Tríceps e peitoral interno', 'Barra e banco reto', 'Pegada na largura dos ombros, cotovelos próximos ao corpo. Desça a barra até a parte baixa do peito e empurre focando o tríceps.'],
+  ['Chest Press Inclinado Máquina', 'Peito', 'Peitoral superior', 'Máquina chest press inclinada', 'Ajuste o assento, mantenha as costas apoiadas e empurre as manoplas para cima e à frente, retornando com controle até alongar o peito.'],
+
+  // ---------- COSTAS (15) ----------
+  ['Puxada Frente Aberta', 'Costas', 'Grande dorsal e redondo maior', 'Polia alta e barra longa', 'Pegada pronada mais larga que os ombros, tronco levemente inclinado. Puxe a barra até a altura do queixo levando os cotovelos para baixo e retorne devagar.'],
+  ['Puxada Frente Fechada', 'Costas', 'Grande dorsal (porção inferior) e bíceps', 'Polia alta e triângulo/barra fechada', 'Pegada fechada, peito aberto. Puxe até a parte alta do peito aproximando os cotovelos do corpo e retorne alongando o dorsal.'],
+  ['Puxada Atrás', 'Costas', 'Grande dorsal, trapézio e romboides', 'Polia alta e barra longa', 'Incline levemente a cabeça à frente e puxe a barra até a altura da nuca sem forçar os ombros. Use carga moderada e amplitude confortável.'],
+  ['Remada Baixa Triângulo', 'Costas', 'Dorsal, romboides e trapézio médio', 'Polia baixa e triângulo', 'Sentado com a coluna neutra, puxe o triângulo até o abdômen juntando as escápulas e retorne estendendo os braços sem arredondar as costas.'],
+  ['Remada Baixa Aberta', 'Costas', 'Trapézio médio, romboides e deltoide posterior', 'Polia baixa e barra reta', 'Pegada aberta, cotovelos afastados do tronco. Puxe a barra até a altura do peito e retorne com controle.'],
+  ['Remada Curvada Barra', 'Costas', 'Dorsal, romboides e eretores da espinha', 'Barra livre', 'Incline o tronco a cerca de 45° com a coluna neutra, puxe a barra até a linha do umbigo e desça devagar sem balançar o corpo.'],
+  ['Remada Unilateral Halter', 'Costas', 'Grande dorsal e romboides', 'Halter e banco', 'Apoie uma mão e o joelho no banco, puxe o halter em direção ao quadril mantendo o cotovelo próximo ao corpo e desça alongando o dorsal.'],
+  ['Barra Fixa Pronada', 'Costas', 'Grande dorsal, redondo maior e bíceps', 'Barra fixa', 'Pegada pronada mais larga que os ombros. Suba até o queixo passar da barra, sem balançar, e desça controlando até quase estender os braços.'],
+  ['Barra Fixa Supinada', 'Costas', 'Dorsal e bíceps', 'Barra fixa', 'Pegada supinada na largura dos ombros. Suba contraindo as costas até o queixo passar da barra e desça com controle.'],
+  ['Pulldown Corda', 'Costas', 'Grande dorsal (isolamento)', 'Polia alta e corda', 'Com os braços estendidos, puxe a corda em direção às coxas mantendo o tronco levemente inclinado e contraindo o dorsal ao final.'],
+  ['Remada Máquina', 'Costas', 'Dorsal e romboides', 'Máquina de remada sentada', 'Peito apoiado no suporte, puxe as manoplas até as escápulas se aproximarem e retorne devagar sem soltar o peso.'],
+  ['Remada Cavalinho', 'Costas', 'Espessura das costas, dorsal e trapézio', 'Barra T / máquina cavalinho', 'Incline o tronco com a coluna neutra, puxe a carga em direção ao peito levando os cotovelos para trás e desça controlando.'],
+  ['Hiperextensão Lombar', 'Costas', 'Eretores da espinha, glúteos e isquiotibiais', 'Banco de hiperextensão', 'Quadril apoiado no suporte, desça o tronco com a coluna neutra e suba até alinhar o corpo, sem hiperestender a lombar no topo.'],
+  ['Encolhimento Barra', 'Costas', 'Trapézio superior', 'Barra livre', 'Em pé, com a barra à frente das coxas, eleve os ombros em direção às orelhas, segure 1s e desça devagar sem girar os ombros.'],
+  ['Levantamento Terra', 'Costas', 'Cadeia posterior: eretores, glúteos e isquiotibiais', 'Barra livre e anilhas', 'Pés na largura do quadril, barra rente às canelas. Mantenha a coluna neutra, empurre o chão e estenda quadril e joelhos juntos, descendo a barra rente ao corpo.'],
+
+  // ---------- PERNA (25) ----------
+  ['Agachamento Livre', 'Perna', 'Quadríceps, glúteos e core', 'Barra livre e rack', 'Barra apoiada no trapézio, pés na largura dos ombros. Desça com a coluna neutra até as coxas ficarem paralelas ao chão e suba empurrando o chão.'],
+  ['Agachamento Smith', 'Perna', 'Quadríceps e glúteos', 'Máquina Smith', 'Posicione os pés levemente à frente da barra, desça até 90° nos joelhos mantendo o tronco firme e suba sem travar as articulações.'],
+  ['Agachamento Frontal', 'Perna', 'Quadríceps e core', 'Barra livre e rack', 'Barra apoiada na frente dos ombros com cotovelos altos. Mantenha o tronco ereto, desça até o paralelo e suba.'],
+  ['Leg Press 45°', 'Perna', 'Quadríceps, glúteos e adutores', 'Leg press 45°', 'Pés na largura dos ombros na plataforma. Desça até cerca de 90° sem descolar o quadril do banco e empurre sem travar os joelhos.'],
+  ['Leg Press Horizontal', 'Perna', 'Quadríceps e glúteos', 'Leg press horizontal', 'Costas apoiadas no encosto, empurre a plataforma até quase estender os joelhos e retorne com controle sem tirar o quadril do assento.'],
+  ['Cadeira Extensora', 'Perna', 'Quadríceps (isolamento)', 'Cadeira extensora', 'Ajuste o encosto, estenda os joelhos até quase a extensão total, segure 1s contraindo o quadríceps e desça devagar.'],
+  ['Cadeira Flexora Deitada', 'Perna', 'Isquiotibiais', 'Máquina flexora deitada', 'Deitado com o quadril apoiado, flexione os joelhos levando os calcanhares em direção aos glúteos e retorne controlando.'],
+  ['Cadeira Flexora Sentada', 'Perna', 'Isquiotibiais', 'Máquina flexora sentada', 'Ajuste o apoio das coxas, flexione os joelhos até o máximo confortável e volte devagar sem deixar a carga bater.'],
+  ['Mesa Flexora', 'Perna', 'Isquiotibiais e panturrilha', 'Mesa flexora', 'Deitado de bruços, flexione os joelhos levando o rolo em direção aos glúteos, contraia no topo e retorne lentamente.'],
+  ['Cadeira Adutora', 'Perna', 'Adutores', 'Cadeira adutora', 'Sentado com as costas apoiadas, una as pernas controlando o movimento e retorne devagar, sem usar impulso.'],
+  ['Cadeira Abdutora', 'Perna', 'Glúteo médio e abdutores', 'Cadeira abdutora', 'Com as costas apoiadas, abra as pernas até a amplitude confortável, contraia o glúteo e retorne com controle.'],
+  ['Stiff Barra', 'Perna', 'Isquiotibiais e glúteos', 'Barra livre', 'Joelhos levemente flexionados, empurre o quadril para trás deslizando a barra rente às pernas até sentir alongamento posterior e retorne contraindo os glúteos.'],
+  ['Stiff Halteres', 'Perna', 'Isquiotibiais e glúteos', 'Halteres', 'Com a coluna neutra, leve o quadril para trás descendo os halteres rente às coxas e suba estendendo o quadril.'],
+  ['Terra Sumô', 'Perna', 'Glúteos, adutores e isquiotibiais', 'Barra livre e anilhas', 'Base larga com pés levemente abertos, pegada estreita entre as pernas. Mantenha o peito aberto e suba empurrando o chão até estender o quadril.'],
+  ['Afundo com Halteres', 'Perna', 'Quadríceps e glúteos', 'Halteres', 'Dê um passo à frente e desça até ambos os joelhos formarem cerca de 90°, mantendo o tronco ereto. Empurre com o pé da frente para voltar.'],
+  ['Afundo no Smith', 'Perna', 'Quadríceps e glúteos', 'Máquina Smith', 'Posicione um pé à frente sob a barra, desça controlando até 90° no joelho da frente e suba sem travar.'],
+  ['Agachamento Búlgaro', 'Perna', 'Quadríceps, glúteos e equilíbrio', 'Banco e halteres', 'Apoie o pé de trás no banco, desça com o tronco levemente inclinado até a coxa da frente ficar paralela ao chão e suba empurrando o calcanhar.'],
+  ['Elevação Pélvica / Hip Thrust', 'Perna', 'Glúteo máximo', 'Banco e barra', 'Costas apoiadas no banco, barra sobre o quadril. Eleve o quadril até alinhar tronco e coxas, contraia os glúteos por 1s e desça controlando.'],
+  ['Glúteo no Cabo / Chute', 'Perna', 'Glúteo máximo', 'Polia baixa e tornozeleira', 'Com a tornozeleira presa, chute a perna para trás estendendo o quadril sem arquear a lombar e retorne devagar.'],
+  ['Glúteo Máquina', 'Perna', 'Glúteo máximo', 'Máquina de glúteo', 'Apoie o tronco, empurre a plataforma para trás com o calcanhar contraindo o glúteo e retorne com controle.'],
+  ['Panturrilha em Pé Máquina', 'Perna', 'Gastrocnêmio', 'Máquina de panturrilha em pé', 'Ombros sob os apoios, suba na ponta dos pés ao máximo, segure 1s e desça alongando bem o calcanhar abaixo da plataforma.'],
+  ['Panturrilha Sentada', 'Perna', 'Sóleo', 'Máquina de panturrilha sentada', 'Com os joelhos a 90° sob o apoio, suba na ponta dos pés, contraia e desça devagar até o alongamento total.'],
+  ['Panturrilha Leg Press', 'Perna', 'Gastrocnêmio e sóleo', 'Leg press', 'Apoie apenas a ponta dos pés na plataforma com joelhos quase estendidos, empurre subindo na ponta dos pés e retorne alongando.'],
+  ['Passada com Barra', 'Perna', 'Quadríceps, glúteos e isquiotibiais', 'Barra livre', 'Com a barra nas costas, dê passos largos alternados descendo o joelho de trás próximo ao chão e empurre o corpo para a frente a cada passo.'],
+  ['Agachamento Hack', 'Perna', 'Quadríceps', 'Máquina hack', 'Costas apoiadas no encosto, pés na plataforma na largura dos ombros. Desça até 90° ou mais e suba sem travar os joelhos.'],
+
+  // ---------- OMBRO (15) ----------
+  ['Desenvolvimento Militar Barra', 'Ombro', 'Deltoides e tríceps', 'Barra livre', 'Em pé, com core firme, empurre a barra da altura da clavícula até acima da cabeça e desça controlando sem arquear a lombar.'],
+  ['Desenvolvimento Militar Halteres', 'Ombro', 'Deltoides e tríceps', 'Halteres e banco com encosto', 'Sentado, empurre os halteres da altura das orelhas até estender os braços acima da cabeça e desça com controle.'],
+  ['Desenvolvimento Arnold', 'Ombro', 'Deltoides (três porções)', 'Halteres e banco', 'Comece com as palmas voltadas para você; ao subir, gire os punhos até as palmas ficarem para a frente e estenda os braços. Inverta o movimento ao descer.'],
+  ['Elevação Lateral Halteres', 'Ombro', 'Deltoide lateral', 'Halteres', 'Em pé, eleve os halteres lateralmente até a altura dos ombros com cotovelos levemente flexionados e desça devagar sem balançar.'],
+  ['Elevação Lateral Polia', 'Ombro', 'Deltoide lateral', 'Polia baixa', 'Com a polia ao lado, eleve o braço lateralmente até a altura do ombro, mantendo tensão constante, e retorne com controle.'],
+  ['Elevação Frontal Halteres', 'Ombro', 'Deltoide anterior', 'Halteres', 'Eleve os halteres à frente até a altura dos olhos, com leve flexão nos cotovelos, e desça lentamente sem usar impulso.'],
+  ['Elevação Frontal Barra', 'Ombro', 'Deltoide anterior', 'Barra reta ou W', 'Segure a barra à frente das coxas, eleve até a altura dos ombros mantendo o tronco estável e desça controlando.'],
+  ['Crucifixo Inverso Máquina', 'Ombro', 'Deltoide posterior e romboides', 'Máquina peck deck (invertida)', 'Com o peito apoiado, abra os braços para trás até a linha dos ombros contraindo a parte posterior e retorne devagar.'],
+  ['Remada Alta Barra', 'Ombro', 'Deltoide lateral e trapézio superior', 'Barra livre', 'Segure a barra com pegada na largura dos ombros e puxe até o peito conduzindo os cotovelos para cima, sem passar da altura dos ombros.'],
+  ['Face Pull', 'Ombro', 'Deltoide posterior, manguito rotador e trapézio', 'Polia alta e corda', 'Puxe a corda em direção ao rosto levando os cotovelos para fora e para trás, separando as pontas da corda ao final do movimento.'],
+  ['Encolhimento Halteres', 'Ombro', 'Trapézio superior', 'Halteres', 'Com os halteres ao lado do corpo, eleve os ombros em direção às orelhas, segure 1s e desça com controle.'],
+  ['Elevação Lateral Inclinada', 'Ombro', 'Deltoide posterior', 'Halteres e banco inclinado', 'Deitado de bruços no banco inclinado, abra os halteres lateralmente até a linha dos ombros e retorne com controle.'],
+  ['Desenvolvimento Máquina', 'Ombro', 'Deltoides e tríceps', 'Máquina de desenvolvimento', 'Ajuste o banco para que as pegadas fiquem na altura dos ombros, empurre até estender os braços e retorne controlando.'],
+  ['Remada Alta Polia', 'Ombro', 'Deltoide lateral e trapézio', 'Polia baixa e barra reta', 'Puxe a barra rente ao corpo até a altura do peito com os cotovelos acima das mãos e desça devagar.'],
+  ['Elevação Lateral Polia Baixa', 'Ombro', 'Deltoide lateral', 'Polia baixa', 'Com a polia cruzando o corpo, eleve o braço lateralmente até a altura do ombro e retorne lentamente mantendo a tensão.'],
+
+  // ---------- BRAÇO (15) ----------
+  ['Rosca Direta Barra Reta', 'Braço', 'Bíceps braquial', 'Barra reta', 'Em pé, cotovelos fixos ao lado do corpo, flexione os cotovelos levando a barra até a altura do peito e desça devagar sem balançar o tronco.'],
+  ['Rosca Direta Barra W', 'Braço', 'Bíceps braquial', 'Barra W', 'A barra W reduz o estresse nos punhos. Flexione os cotovelos mantendo-os fixos e controle a descida.'],
+  ['Rosca Martelo', 'Braço', 'Braquial e braquiorradial', 'Halteres', 'Com as palmas voltadas uma para a outra, flexione os cotovelos mantendo os punhos neutros e desça com controle.'],
+  ['Rosca Alternada Halteres', 'Braço', 'Bíceps braquial', 'Halteres', 'Alterne os braços, girando o punho para cima durante a subida e mantendo os cotovelos junto ao tronco.'],
+  ['Rosca Scott Barra', 'Braço', 'Bíceps braquial (porção curta)', 'Banco Scott e barra W', 'Apoie os braços no banco, desça a barra até quase estender os cotovelos e suba contraindo o bíceps sem tirar os braços do apoio.'],
+  ['Rosca Scott Halter', 'Braço', 'Bíceps braquial', 'Banco Scott e halter', 'Apoie o braço no banco, flexione o cotovelo até o topo e desça devagar, alongando bem o bíceps.'],
+  ['Rosca Concentrada', 'Braço', 'Bíceps braquial (pico)', 'Halter e banco', 'Sentado, apoie o cotovelo na parte interna da coxa e flexione o braço até o topo, contraindo o bíceps ao final.'],
+  ['Rosca Inversa', 'Braço', 'Braquiorradial e antebraço', 'Barra reta ou W', 'Pegada pronada, mantenha os cotovelos fixos e flexione levando a barra até a altura do peito com punhos neutros.'],
+  ['Tríceps Testa Barra W', 'Braço', 'Tríceps braquial', 'Barra W e banco', 'Deitado, desça a barra em direção à testa flexionando os cotovelos sem abri-los e estenda os braços até o topo.'],
+  ['Tríceps Testa Halteres', 'Braço', 'Tríceps braquial', 'Halteres e banco', 'Deitado, flexione os cotovelos descendo os halteres ao lado da cabeça e estenda os braços mantendo os cotovelos fixos.'],
+  ['Tríceps Corda Polia Alta', 'Braço', 'Tríceps braquial (cabeça lateral)', 'Polia alta e corda', 'Cotovelos fixos ao lado do corpo, estenda os braços abrindo as pontas da corda ao final e retorne devagar.'],
+  ['Tríceps Barra Reta Polia', 'Braço', 'Tríceps braquial', 'Polia alta e barra reta', 'Com os cotovelos junto ao tronco, empurre a barra para baixo até estender os braços e retorne controlando até 90°.'],
+  ['Tríceps Francês Halter', 'Braço', 'Tríceps braquial (cabeça longa)', 'Halter', 'Segure o halter com as duas mãos acima da cabeça, desça atrás da nuca flexionando os cotovelos e estenda de volta.'],
+  ['Tríceps Mergulho Banco', 'Braço', 'Tríceps braquial', 'Banco', 'Com as mãos no banco atrás do corpo, flexione os cotovelos descendo o quadril e empurre para cima até estender os braços.'],
+  ['Tríceps Mergulho Paralelas', 'Braço', 'Tríceps e peitoral inferior', 'Barras paralelas', 'Com o tronco ereto para foco no tríceps, desça até 90° nos cotovelos e empurre de volta sem travá-los.'],
+
+  // ---------- CORE (15) ----------
+  ['Abdominal Reto Solo', 'Core', 'Reto abdominal', 'Colchonete', 'Deitado com joelhos flexionados, eleve o tronco contraindo o abdômen sem puxar o pescoço e desça com controle.'],
+  ['Elevação de Pernas', 'Core', 'Reto abdominal inferior e flexores do quadril', 'Banco ou barra', 'Mantenha as costas apoiadas e eleve as pernas até o quadril formar cerca de 90°; desça sem deixar a lombar sair do apoio.'],
+  ['Abdominal Oblíquo', 'Core', 'Oblíquos', 'Colchonete', 'Deitado, leve o cotovelo em direção ao joelho oposto girando o tronco, contraindo os oblíquos, e alterne os lados.'],
+  ['Prancha Isométrica', 'Core', 'Core profundo e reto abdominal', 'Colchonete', 'Apoie antebraços e pontas dos pés, mantenha o corpo em linha reta contraindo abdômen e glúteos durante todo o tempo.'],
+  ['Prancha Lateral', 'Core', 'Oblíquos e glúteo médio', 'Colchonete', 'Apoiado em um antebraço, eleve o quadril alinhando corpo da cabeça aos pés e mantenha a posição, alternando os lados.'],
+  ['Abdominal na Polia Alta', 'Core', 'Reto abdominal', 'Polia alta e corda', 'Ajoelhado, com a corda junto à cabeça, flexione o tronco levando os cotovelos em direção aos joelhos e retorne com controle.'],
+  ['Abdominal Máquina', 'Core', 'Reto abdominal', 'Máquina de abdominal', 'Ajuste a carga, flexione o tronco contraindo o abdômen e retorne devagar sem deixar o peso descansar.'],
+  ['Elevação de Joelho na Barra', 'Core', 'Reto abdominal inferior', 'Barra fixa', 'Pendurado na barra, eleve os joelhos até o peito sem balançar o corpo e desça com controle.'],
+  ['Abdominal Bicicleta', 'Core', 'Reto abdominal e oblíquos', 'Colchonete', 'Deitado, alterne cotovelo e joelho opostos num movimento de pedalada, mantendo o abdômen contraído.'],
+  ['Russian Twist', 'Core', 'Oblíquos e reto abdominal', 'Colchonete e anilha/halter (opcional)', 'Sentado com o tronco inclinado e pés elevados, gire o tronco de um lado ao outro tocando a carga ao lado do quadril.'],
+  ['Hiperextensão Lombar no Solo', 'Core', 'Eretores da espinha e glúteos', 'Colchonete', 'Deitado de bruços, eleve tronco e pernas simultaneamente contraindo a lombar e os glúteos, sem hiperestender o pescoço.'],
+  ['Abdominal com Roda', 'Core', 'Reto abdominal e core profundo', 'Roda abdominal', 'De joelhos, role a roda à frente mantendo a coluna neutra e contraindo o abdômen, e retorne puxando com o core.'],
+  ['Elevação de Pernas Deitado', 'Core', 'Reto abdominal inferior', 'Colchonete', 'Deitado, com as pernas estendidas, eleve-as até 90° sem arquear a lombar e desça devagar sem tocar o chão.'],
+  ['Abdominal Canivete', 'Core', 'Reto abdominal completo', 'Colchonete', 'Deitado, eleve simultaneamente tronco e pernas tentando tocar os pés com as mãos e retorne com controle.'],
+  ['V-Up', 'Core', 'Reto abdominal e flexores do quadril', 'Colchonete', 'Braços estendidos acima da cabeça, eleve tronco e pernas formando um V, toque os pés e desça controlando.'],
+]
+
+const BASE: Exercicio[] = RAW.map(([nome, grupo, foco, equipamento, instrucoes], i) => ({
+  id: 'ex' + (i + 1), nome, grupo, foco, equipamento, instrucoes, video_url: null, gif_url: null,
+}))
+
+const ef = (nome: string, series: string, reps: string, carga: string, descanso: string): ExercicioFicha => {
+  const b = BASE.find((e) => e.nome === nome)
+  if (!b) throw new Error('Exercício não encontrado: ' + nome)
+  return { ...b, series, reps, carga, descanso }
+}
+
+const hoje = () => new Date().toLocaleDateString('pt-BR')
+
+/* =========================================================
+   TEMPLATES INICIAIS
+   ========================================================= */
+const TEMPLATES_INICIAIS: Template[] = [
+  {
+    id: 't1', nome: 'Hipertrofia ABC Iniciante', objetivo: 'HIPERTROFIA', nivel: 'INICIANTE',
+    descricao: '3 dias por semana com máquinas e exercícios livres básicos para construir base de hipertrofia.',
+    dataCriacao: hoje(),
+    exercicios: [
+      ef('Supino Máquina', '3', '10-12', 'Moderada', '60-90s'),
+      ef('Puxada Frente Aberta', '3', '10-12', 'Moderada', '60-90s'),
+      ef('Leg Press 45°', '3', '12', 'Moderada', '90s'),
+      ef('Desenvolvimento Máquina', '3', '10-12', 'Leve a moderada', '60s'),
+      ef('Rosca Direta Barra W', '3', '10-12', 'Leve a moderada', '60s'),
+      ef('Tríceps Corda Polia Alta', '3', '12', 'Leve a moderada', '60s'),
+    ],
+  },
+  {
+    id: 't2', nome: 'Hipertrofia Peito e Tríceps Avançado', objetivo: 'HIPERTROFIA', nivel: 'AVANÇADO',
+    descricao: 'Treino de volume alto para peitoral e tríceps, com múltiplos ângulos e técnicas de intensidade.',
+    dataCriacao: hoje(),
+    exercicios: [
+      ef('Supino Reto Barra', '5', '6-8', 'Pesada', '120s'),
+      ef('Supino Inclinado Halteres', '4', '8-10', 'Moderada a pesada', '90s'),
+      ef('Crucifixo Inclinado Halteres', '4', '10-12', 'Moderada', '75s'),
+      ef('Crossover Polia Alta', '4', '12-15', 'Moderada', '60s'),
+      ef('Tríceps Testa Barra W', '4', '8-10', 'Moderada a pesada', '75s'),
+      ef('Tríceps Corda Polia Alta', '4', '12-15', 'Moderada', '60s'),
+    ],
+  },
+  {
+    id: 't3', nome: 'Emagrecimento Full Body 3x', objetivo: 'EMAGRECIMENTO', nivel: 'INICIANTE',
+    descricao: 'Circuito de corpo inteiro com descanso curto para elevar o gasto calórico. 3 vezes por semana.',
+    dataCriacao: hoje(),
+    exercicios: [
+      ef('Agachamento Livre', '3', '15', 'Leve', '30s'),
+      ef('Supino Reto Halteres', '3', '15', 'Leve', '30s'),
+      ef('Remada Baixa Triângulo', '3', '15', 'Leve', '30s'),
+      ef('Desenvolvimento Militar Halteres', '3', '12', 'Leve', '30s'),
+      ef('Prancha Isométrica', '3', '30-45s', 'Peso corporal', '30s'),
+      ef('Abdominal Bicicleta', '3', '20', 'Peso corporal', '30s'),
+    ],
+  },
+  {
+    id: 't4', nome: 'Força 5x5 Strong', objetivo: 'FORÇA', nivel: 'AVANÇADO',
+    descricao: 'Base de força com 5 séries de 5 repetições nos movimentos compostos principais.',
+    dataCriacao: hoje(),
+    exercicios: [
+      ef('Agachamento Livre', '5', '5', 'Pesada (80-85% 1RM)', '180s'),
+      ef('Supino Reto Barra', '5', '5', 'Pesada (80-85% 1RM)', '180s'),
+      ef('Levantamento Terra', '3', '5', 'Pesada', '180s'),
+      ef('Desenvolvimento Militar Barra', '5', '5', 'Pesada', '150s'),
+      ef('Remada Curvada Barra', '5', '5', 'Pesada', '150s'),
+      ef('Barra Fixa Pronada', '4', '6-8', 'Peso corporal + carga', '120s'),
+    ],
+  },
+  {
+    id: 't5', nome: 'Definição Glúteos e Inferiores', objetivo: 'DEFINIÇÃO', nivel: 'INTERMEDIÁRIO',
+    descricao: 'Foco em glúteos e posteriores de coxa, com exercícios de tensão contínua para definição.',
+    dataCriacao: hoje(),
+    exercicios: [
+      ef('Elevação Pélvica / Hip Thrust', '4', '10-12', 'Moderada a pesada', '90s'),
+      ef('Agachamento Búlgaro', '3', '10-12 cada', 'Moderada', '75s'),
+      ef('Stiff Halteres', '4', '10-12', 'Moderada', '75s'),
+      ef('Glúteo no Cabo / Chute', '3', '12-15 cada', 'Leve a moderada', '45-60s'),
+      ef('Cadeira Abdutora', '4', '15', 'Moderada', '45s'),
+      ef('Terra Sumô', '3', '8-10', 'Moderada a pesada', '90s'),
+    ],
+  },
+]
+
+const ALUNOS_INICIAIS: Aluno[] = [
+  { id: 'a1', nome: 'João Pedro Santos', objetivo: 'HIPERTROFIA', peso: '78', altura: '178', whatsapp: '11999990001', observacoes: 'Leve desconforto no ombro direito. Evitar desenvolvimento atrás da nuca.' },
+  { id: 'a2', nome: 'Maria Fernanda Oliveira', objetivo: 'EMAGRECIMENTO', peso: '65', altura: '165', whatsapp: '11999990002', observacoes: '' },
+  { id: 'a3', nome: 'Carlos Eduardo Lima', objetivo: 'FORÇA', peso: '92', altura: '183', whatsapp: '11999990003', observacoes: 'Treina às 6h. Prefere barra livre.' },
+  { id: 'a4', nome: 'Ana Beatriz Costa', objetivo: 'DEFINIÇÃO', peso: '58', altura: '160', whatsapp: '11999990004', observacoes: '' },
+]
+
+const clone = (l: ExercicioFicha[]) => l.map((e) => ({ ...e }))
+
+const FICHAS_INICIAIS: Ficha[] = [
+  { id: 'f1', alunoId: 'a1', nome: 'Hipertrofia ABC - Treino A', data: hoje(), exercicios: clone(TEMPLATES_INICIAIS[0].exercicios), templateId: 't1' },
+  { id: 'f2', alunoId: 'a2', nome: 'Full Body Emagrecimento', data: hoje(), exercicios: clone(TEMPLATES_INICIAIS[2].exercicios), templateId: 't3' },
+  { id: 'f3', alunoId: 'a3', nome: 'Força 5x5 - Fase 1', data: hoje(), exercicios: clone(TEMPLATES_INICIAIS[3].exercicios), templateId: 't4' },
+]
+
+/* =========================================================
+   HELPERS E ESTILOS
+   ========================================================= */
+const norm = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+const iniciais = (nome: string) => nome.split(' ').filter(Boolean).slice(0, 2).map((p) => p[0]).join('').toUpperCase()
+const telefone = (p: string) => {
+  const d = p.replace(/\D/g, '')
+  if (!d) return ''
+  return d.length <= 11 ? '55' + d : d
+}
+const slug = (s: string) => norm(s).replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
+
+const inputCls = 'w-full h-[42px] rounded-[10px] bg-[#0E0E0E] border border-[#222] px-3 text-[13px] text-white placeholder:text-[#555] outline-none focus:border-[#444] transition'
+const textareaCls = 'w-full rounded-[10px] bg-[#0E0E0E] border border-[#222] px-3 py-2.5 text-[13px] text-white placeholder:text-[#555] outline-none focus:border-[#444] resize-none transition'
+const btnPri = 'h-11 px-4 rounded-[10px] bg-white text-black font-bold text-[13px] hover:bg-[#E5E5E5] transition inline-flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed'
+const btnSec = 'h-9 px-3 rounded-[10px] bg-[#1E1E1E] border border-[#2A2A2A] text-[12px] text-white hover:bg-[#262626] transition inline-flex items-center justify-center gap-1.5'
+const labelCls = 'block text-[10px] uppercase tracking-[0.12em] text-[#888] font-semibold mb-1.5'
+const cardCls = 'bg-[#121212] border border-[#222] rounded-2xl'
+
+const nivelCls: Record<Nivel, string> = {
+  'INICIANTE': 'bg-green-500/15 text-green-400 border-green-500/30',
+  'INTERMEDIÁRIO': 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30',
+  'AVANÇADO': 'bg-red-500/15 text-red-400 border-red-500/30',
+}
+
+const loadScript = (src: string, check: () => boolean) =>
+  new Promise<void>((resolve, reject) => {
+    if (check()) return resolve()
+    const s = document.createElement('script')
+    s.src = src
+    s.onload = () => resolve()
+    s.onerror = () => reject(new Error('Falha ao carregar ' + src))
+    document.head.appendChild(s)
+  })
+
+/* =========================================================
+   COMPONENTES (nível de módulo para não perder foco dos inputs)
+   ========================================================= */
+function LogoText({ size = 'default', variant = 'dark' }: { size?: 'large' | 'default' | 'small'; variant?: 'dark' | 'light' }) {
+  const fs = size === 'large' ? 42 : size === 'small' ? 16 : 28
+  const sub = size === 'large' ? 12 : size === 'small' ? 7 : 10
+  return (
+    <div className={`inline-flex flex-col items-center select-none leading-none ${variant === 'dark' ? 'text-white' : 'text-black'}`}>
+      <div className="font-black flex items-baseline" style={{ fontSize: fs, letterSpacing: '-0.03em' }}>
+        <span>"</span><span>POWER</span>
+      </div>
+      <div className="flex items-center font-medium mt-1.5" style={{ fontSize: sub, letterSpacing: '0.32em', gap: '0.32em' }}>
+        <span className="h-px w-4 bg-current"></span><span>G</span><span>Y</span><span>M</span><span className="ml-2">P</span><span>R</span><span>O</span><span className="h-px w-4 bg-current"></span>
+      </div>
+    </div>
+  )
+}
+
+function Overlay({ onClose, children, wide }: { onClose: () => void; children: ReactNode; wide?: boolean }) {
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
+    window.addEventListener('keydown', h)
+    return () => window.removeEventListener('keydown', h)
+  }, [onClose])
+  return (
+    <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/70 backdrop-blur-sm md:p-4" onClick={onClose}>
+      <div
+        className={`w-full ${wide ? 'md:max-w-2xl' : 'md:max-w-lg'} bg-[#121212] border border-[#222] rounded-t-2xl md:rounded-2xl max-h-[92vh] overflow-y-auto`}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function Modal({ title, onClose, children, wide }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) {
+  return (
+    <Overlay onClose={onClose} wide={wide}>
+      <div className="flex items-center justify-between px-5 py-4 border-b border-[#222] sticky top-0 bg-[#121212] z-10">
+        <h3 className="text-[14px] font-extrabold">{title}</h3>
+        <button onClick={onClose} className="w-8 h-8 rounded-lg bg-[#1A1A1A] border border-[#222] flex items-center justify-center text-[#888] hover:text-white">
+          <X size={15} />
+        </button>
+      </div>
+      <div className="p-5">{children}</div>
+    </Overlay>
+  )
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return <div><label className={labelCls}>{label}</label>{children}</div>
+}
+
+function SearchBox({ value, onChange, placeholder }: { value: string; onChange: (v: string) => void; placeholder: string }) {
+  return (
+    <div className="relative">
+      <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#555]" />
+      <input className={inputCls + ' pl-9'} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
+    </div>
+  )
+}
+
+function Chips({ options, value, onChange }: { options: string[]; value: string; onChange: (v: string) => void }) {
+  return (
+    <div className="flex gap-1.5 overflow-x-auto pb-1 -mx-1 px-1">
+      {options.map((o) => (
+        <button
+          key={o}
+          onClick={() => onChange(o)}
+          className={`shrink-0 h-8 px-3 rounded-[10px] text-[11px] font-bold border transition ${
+            value === o ? 'bg-white text-black border-white' : 'bg-[#1A1A1A] text-[#888] border-[#222] hover:text-white'
+          }`}
+        >
+          {o}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function Biblioteca({
+  biblioteca, categorias, ids, onAdd, onRemove,
+}: {
+  biblioteca: Exercicio[]; categorias: Grupo[]; ids: string[]
+  onAdd: (e: Exercicio) => void; onRemove: (id: string) => void
+}) {
+  const [q, setQ] = useState('')
+  const [g, setG] = useState('Todos')
+  const list = biblioteca.filter(
+    (e) => (g === 'Todos' || e.grupo === g) && norm(e.nome + ' ' + e.foco + ' ' + e.equipamento).includes(norm(q))
+  )
+  return (
+    <div className={cardCls + ' p-4 flex flex-col'}>
+      <p className={labelCls}>Biblioteca</p>
+      <SearchBox value={q} onChange={setQ} placeholder="Buscar exercício..." />
+      <div className="mt-3"><Chips options={['Todos', ...categorias]} value={g} onChange={setG} /></div>
+      <div className="mt-3 space-y-1.5 max-h-[420px] lg:max-h-[640px] overflow-y-auto pr-1">
+        {list.map((e) => {
+          const on = ids.includes(e.id)
+          return (
+            <div key={e.id} className="flex items-center gap-2 bg-[#0E0E0E] border border-[#1E1E1E] rounded-[10px] px-3 py-2">
+              <div className="min-w-0 flex-1">
+                <p className="text-[12px] font-semibold truncate">{e.nome}</p>
+                <p className="text-[10px] text-[#777] truncate">{e.grupo} • {e.equipamento}</p>
+              </div>
+              <button
+                onClick={() => (on ? onRemove(e.id) : onAdd(e))}
+                className={`w-8 h-8 shrink-0 rounded-lg flex items-center justify-center border transition ${
+                  on ? 'bg-[#1E1E1E] border-[#2A2A2A] text-red-400' : 'bg-white border-white text-black hover:bg-[#E5E5E5]'
+                }`}
+                aria-label={on ? 'Remover' : 'Adicionar'}
+              >
+                {on ? <Minus size={14} /> : <Plus size={14} />}
+              </button>
+            </div>
+          )
+        })}
+        {list.length === 0 && <p className="text-[12px] text-[#666] text-center py-6">Nenhum exercício encontrado.</p>}
+      </div>
+    </div>
+  )
+}
+
+function ListaEditor({ lista, setLista }: { lista: ExercicioFicha[]; setLista: (l: ExercicioFicha[]) => void }) {
+  const upd = (i: number, k: 'series' | 'reps' | 'carga' | 'descanso', v: string) =>
+    setLista(lista.map((e, idx) => (idx === i ? { ...e, [k]: v } : e)))
+  const move = (i: number, d: -1 | 1) => {
+    const j = i + d
+    if (j < 0 || j >= lista.length) return
+    const c = [...lista]
+    ;[c[i], c[j]] = [c[j], c[i]]
+    setLista(c)
+  }
+  if (lista.length === 0)
+    return <div className="border border-dashed border-[#2A2A2A] rounded-xl py-8 text-center text-[12px] text-[#666]">Adicione exercícios pela biblioteca.</div>
+  return (
+    <div className="space-y-2">
+      {lista.map((e, i) => (
+        <div key={e.id} className="bg-[#0E0E0E] border border-[#1E1E1E] rounded-xl p-3">
+          <div className="flex items-center gap-2">
+            <span className="w-6 h-6 rounded-md bg-[#1A1A1A] border border-[#222] text-[10px] font-bold flex items-center justify-center text-[#888]">{i + 1}</span>
+            <p className="flex-1 min-w-0 text-[12px] font-bold truncate">{e.nome}</p>
+            <button onClick={() => move(i, -1)} className="w-7 h-7 rounded-md bg-[#1A1A1A] border border-[#222] flex items-center justify-center text-[#888] hover:text-white"><ChevronUp size={14} /></button>
+            <button onClick={() => move(i, 1)} className="w-7 h-7 rounded-md bg-[#1A1A1A] border border-[#222] flex items-center justify-center text-[#888] hover:text-white"><ChevronDown size={14} /></button>
+            <button onClick={() => setLista(lista.filter((_, idx) => idx !== i))} className="w-7 h-7 rounded-md bg-[#1A1A1A] border border-[#222] flex items-center justify-center text-red-400 hover:text-red-300"><Trash2 size={13} /></button>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2.5">
+            {([['series', 'Séries'], ['reps', 'Reps'], ['carga', 'Carga'], ['descanso', 'Descanso']] as const).map(([k, l]) => (
+              <div key={k}>
+                <label className="block text-[9px] uppercase tracking-[0.12em] text-[#666] font-semibold mb-1">{l}</label>
+                <input
+                  className="w-full h-9 rounded-lg bg-[#1A1A1A] border border-[#222] px-2.5 text-[12px] outline-none focus:border-[#444]"
+                  value={e[k]}
+                  onChange={(ev) => upd(i, k, ev.target.value)}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/* =========================================================
+   APP
+   ========================================================= */
+type Tab = 'exercicios' | 'templates' | 'alunos'
+type View = 'main' | 'criarTemplate' | 'criarFicha' | 'ficha'
+
+const FORM_ALUNO = { nome: '', objetivo: 'HIPERTROFIA' as Objetivo, whatsapp: '', peso: '', altura: '', observacoes: '' }
+const FORM_EX = { nome: '', grupo: '', equipamento: '', foco: '', instrucoes: '', video_url: '', gif_url: '' }
+
+export default function App() {
+  /* ---------- auth ---------- */
+  const [logado, setLogado] = useState(false)
+  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login')
+  const [authNome, setAuthNome] = useState('')
+  const [email, setEmail] = useState('giovane@powergym.com')
+  const [senha, setSenha] = useState('')
+  const [authErro, setAuthErro] = useState('')
+
+  /* ---------- dados ---------- */
+  const [alunos, setAlunos] = useState<Aluno[]>(ALUNOS_INICIAIS)
+  const [fichas, setFichas] = useState<Ficha[]>(FICHAS_INICIAIS)
+  const [templates, setTemplates] = useState<Template[]>(TEMPLATES_INICIAIS)
+  const [biblioteca, setBiblioteca] = useState<Exercicio[]>(BASE)
+  const [categorias, setCategorias] = useState<Grupo[]>(CATEGORIAS_INICIAIS)
+
+  /* ---------- navegação ---------- */
+  const [tab, setTab] = useState<Tab>('alunos')
+  const [view, setView] = useState<View>('main')
+
+  /* ---------- buscas ---------- */
+  const [qAluno, setQAluno] = useState('')
+  const [qTemplate, setQTemplate] = useState('')
+  const [qEx, setQEx] = useState('')
+  const [gEx, setGEx] = useState('Todos')
+
+  /* ---------- modais ---------- */
+  const [modalAluno, setModalAluno] = useState(false)
+  const [formAluno, setFormAluno] = useState(FORM_ALUNO)
+  const [modalEx, setModalEx] = useState<{ editing: Exercicio | null } | null>(null)
+  const [formEx, setFormEx] = useState(FORM_EX)
+  const [modalCat, setModalCat] = useState(false)
+  const [novaCat, setNovaCat] = useState('')
+  const [exDetalhe, setExDetalhe] = useState<Exercicio | null>(null)
+  const [anexar, setAnexar] = useState<{ templateId: string; alunoId: string } | null>(null)
+
+  /* ---------- criar template ---------- */
+  const [tplId, setTplId] = useState<string | null>(null)
+  const [tplNome, setTplNome] = useState('')
+  const [tplNivel, setTplNivel] = useState<Nivel>('INICIANTE')
+  const [tplObj, setTplObj] = useState<Objetivo>('HIPERTROFIA')
+  const [tplDesc, setTplDesc] = useState('')
+  const [tplExs, setTplExs] = useState<ExercicioFicha[]>([])
+
+  /* ---------- criar ficha ---------- */
+  const [fAluno, setFAluno] = useState('')
+  const [fNome, setFNome] = useState('')
+  const [fTplId, setFTplId] = useState('')
+  const [fExs, setFExs] = useState<ExercicioFicha[]>([])
+
+  /* ---------- ficha detalhe ---------- */
+  const [fichaId, setFichaId] = useState<string | null>(null)
+  const fichaRef = useRef<HTMLDivElement>(null)
+  const [exportando, setExportando] = useState(false)
+
+  useEffect(() => { window.scrollTo({ top: 0 }) }, [view, tab])
+
+  /* ---------- AUTH ---------- */
+  const entrar = () => {
+    if (!email.trim() || !senha.trim()) return setAuthErro('Informe e-mail e senha.')
+    if (authMode === 'signup' && !authNome.trim()) return setAuthErro('Informe seu nome.')
+    setAuthErro('')
+    setLogado(true)
+  }
+
+  if (!logado) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-4 py-10">
+        <div className="w-full max-w-sm">
+          <div className="flex justify-center mb-10"><LogoText size="large" variant="dark" /></div>
+          <div className={cardCls + ' p-6 space-y-4'}>
+            <div>
+              <h1 className="text-[18px] font-extrabold">{authMode === 'login' ? 'Painel do Treinador' : 'Criar conta'}</h1>
+              <p className="text-[12px] text-[#888] mt-1">Treino profissional. Resultados reais.</p>
+            </div>
+            {authMode === 'signup' && (
+              <Field label="Nome">
+                <input className={inputCls} value={authNome} onChange={(e) => setAuthNome(e.target.value)} placeholder="Seu nome" />
+              </Field>
+            )}
+            <Field label="E-mail">
+              <input className={inputCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="voce@email.com" />
+            </Field>
+            <Field label="Senha">
+              <input
+                className={inputCls} type="password" value={senha}
+                onChange={(e) => setSenha(e.target.value)} placeholder="••••••••"
+                onKeyDown={(e) => e.key === 'Enter' && entrar()}
+              />
+            </Field>
+            {authErro && <p className="text-[12px] text-red-400">{authErro}</p>}
+            <button onClick={entrar} className={btnPri + ' w-full'}>{authMode === 'login' ? 'ENTRAR' : 'CRIAR CONTA'}</button>
+            <button
+              onClick={() => { setAuthMode(authMode === 'login' ? 'signup' : 'login'); setAuthErro('') }}
+              className="w-full text-[12px] text-[#888] hover:text-white transition"
+            >
+              {authMode === 'login' ? 'Não tem conta? Cadastre-se' : 'Já tem conta? Entrar'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  /* ---------- AÇÕES: alunos ---------- */
+  const salvarAluno = () => {
+    if (!formAluno.nome.trim()) return
+    setAlunos([...alunos, { id: 'a' + Date.now(), ...formAluno, nome: formAluno.nome.trim() }])
+    setFormAluno(FORM_ALUNO)
+    setModalAluno(false)
+  }
+
+  /* ---------- AÇÕES: exercícios ---------- */
+  const abrirModalEx = (ex: Exercicio | null) => {
+    setFormEx(
+      ex
+        ? { nome: ex.nome, grupo: ex.grupo, equipamento: ex.equipamento, foco: ex.foco, instrucoes: ex.instrucoes, video_url: ex.video_url ?? '', gif_url: ex.gif_url ?? '' }
+        : { ...FORM_EX, grupo: categorias[0] ?? '' }
+    )
+    setModalEx({ editing: ex })
+  }
+  const salvarEx = () => {
+    if (!formEx.nome.trim() || !modalEx) return
+    const dados = {
+      nome: formEx.nome.trim(), grupo: formEx.grupo || categorias[0] || 'Geral', equipamento: formEx.equipamento.trim(),
+      foco: formEx.foco.trim(), instrucoes: formEx.instrucoes.trim(),
+      video_url: formEx.video_url.trim() || null, gif_url: formEx.gif_url.trim() || null,
+    }
+    if (modalEx.editing) {
+      const id = modalEx.editing.id
+      setBiblioteca(biblioteca.map((e) => (e.id === id ? { ...e, ...dados } : e)))
+    } else {
+      setBiblioteca([...biblioteca, { id: 'ex' + Date.now(), ...dados }])
+    }
+    setModalEx(null)
+  }
+  const excluirEx = (e: Exercicio) => {
+    if (window.confirm(`Excluir "${e.nome}" da biblioteca?`)) setBiblioteca(biblioteca.filter((x) => x.id !== e.id))
+  }
+  const criarCategoria = () => {
+    const n = novaCat.trim()
+    if (!n) return
+    if (!categorias.some((c) => norm(c) === norm(n))) setCategorias([...categorias, n])
+    setNovaCat('')
+  }
+
+  /* ---------- AÇÕES: templates ---------- */
+  const abrirCriarTemplate = (t?: Template) => {
+    setTplId(t ? t.id : null)
+    setTplNome(t ? t.nome : '')
+    setTplNivel(t ? t.nivel : 'INICIANTE')
+    setTplObj(t ? t.objetivo : 'HIPERTROFIA')
+    setTplDesc(t ? t.descricao : '')
+    setTplExs(t ? clone(t.exercicios) : [])
+    setView('criarTemplate')
+  }
+  const salvarTemplate = () => {
+    if (!tplNome.trim() || tplExs.length === 0) return
+    const base = { nome: tplNome.trim(), nivel: tplNivel, objetivo: tplObj, descricao: tplDesc.trim(), exercicios: tplExs }
+    if (tplId) setTemplates(templates.map((t) => (t.id === tplId ? { ...t, ...base } : t)))
+    else setTemplates([...templates, { id: 't' + Date.now(), ...base, dataCriacao: hoje() }])
+    setView('main'); setTab('templates')
+  }
+  const duplicarTemplate = (t: Template) =>
+    setTemplates([...templates, { ...t, id: 't' + Date.now(), nome: t.nome + ' (cópia)', exercicios: clone(t.exercicios), dataCriacao: hoje() }])
+  const excluirTemplate = (t: Template) => {
+    if (window.confirm(`Excluir o template "${t.nome}"?`)) setTemplates(templates.filter((x) => x.id !== t.id))
+  }
+
+  /* ---------- AÇÕES: fichas ---------- */
+  const abrirCriarFicha = (alunoId?: string, t?: Template) => {
+    setFAluno(alunoId ?? '')
+    setFNome(t ? t.nome : '')
+    setFTplId(t ? t.id : '')
+    setFExs(t ? clone(t.exercicios) : [])
+    setView('criarFicha')
+  }
+  const carregarTemplate = (id: string) => {
+    setFTplId(id)
+    const t = templates.find((x) => x.id === id)
+    if (!t) return
+    setFExs(clone(t.exercicios))
+    if (!fNome.trim()) setFNome(t.nome)
+  }
+  const salvarFicha = () => {
+    if (!fAluno || !fNome.trim() || fExs.length === 0) return
+    const nova: Ficha = { id: 'f' + Date.now(), alunoId: fAluno, nome: fNome.trim(), data: hoje(), exercicios: fExs, templateId: fTplId || undefined }
+    setFichas([...fichas, nova])
+    setFichaId(nova.id); setView('ficha')
+  }
+  const confirmarAnexo = () => {
+    if (!anexar || !anexar.alunoId || !anexar.templateId) return
+    const t = templates.find((x) => x.id === anexar.templateId)
+    if (!t) return
+    const nova: Ficha = { id: 'f' + Date.now(), alunoId: anexar.alunoId, nome: t.nome, data: hoje(), exercicios: clone(t.exercicios), templateId: t.id }
+    setFichas([...fichas, nova])
+    setAnexar(null); setFichaId(nova.id); setView('ficha')
+  }
+  const excluirFicha = (f: Ficha) => {
+    if (!window.confirm(`Excluir a ficha "${f.nome}"?`)) return
+    setFichas(fichas.filter((x) => x.id !== f.id))
+    setView('main'); setTab('alunos')
+  }
+
+  /* ---------- AÇÕES: exportação ---------- */
+  const capturar = async () => {
+    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js', () => !!(window as any).html2canvas)
+    return (window as any).html2canvas(fichaRef.current, { scale: 2, backgroundColor: '#ffffff', useCORS: true }) as Promise<HTMLCanvasElement>
+  }
+  const exportarPNG = async (nome: string) => {
+    if (!fichaRef.current) return
+    setExportando(true)
+    try {
+      const canvas = await capturar()
+      const a = document.createElement('a')
+      a.href = canvas.toDataURL('image/png')
+      a.download = `ficha-${slug(nome)}.png`
+      a.click()
+    } catch (e) {
+      window.alert('Não foi possível gerar a imagem. Verifique sua conexão e tente novamente.')
+    }
+    setExportando(false)
+  }
+  const exportarPDF = async (nome: string) => {
+    if (!fichaRef.current) return
+    setExportando(true)
+    try {
+      const canvas = await capturar()
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js', () => !!(window as any).jspdf)
+      const { jsPDF } = (window as any).jspdf
+      const pdf = new jsPDF('p', 'mm', 'a4')
+      const pw = 210, ph = 297
+      let w = pw
+      let h = (canvas.height * pw) / canvas.width
+      if (h > ph) { h = ph; w = (canvas.width * ph) / canvas.height }
+      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', (pw - w) / 2, 0, w, h)
+      pdf.save(`ficha-${slug(nome)}.pdf`)
+    } catch (e) {
+      window.alert('Não foi possível gerar o PDF. Verifique sua conexão e tente novamente.')
+    }
+    setExportando(false)
+  }
+  const enviarWhats = (f: Ficha, a?: Aluno) => {
+    const linhas = f.exercicios.map(
+      (e, i) => `${i + 1}. *${e.nome}* — ${e.series}x${e.reps}${e.carga ? ` | Carga: ${e.carga}` : ''}${e.descanso ? ` | Descanso: ${e.descanso}` : ''}`
+    )
+    const msg = `*POWER GYM PRO*\nOlá${a ? ', ' + a.nome.split(' ')[0] : ''}! Segue sua ficha: *${f.nome}*\n\n${linhas.join('\n')}\n\nBons treinos! 💪`
+    const tel = a ? telefone(a.whatsapp) : ''
+    window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msg)}`, '_blank')
+  }
+
+  /* ---------- derivados ---------- */
+  const alunosFiltrados = alunos.filter((a) => norm(a.nome + ' ' + a.objetivo).includes(norm(qAluno)))
+  const templatesFiltrados = templates.filter((t) => norm(t.nome + ' ' + t.objetivo + ' ' + t.nivel).includes(norm(qTemplate)))
+  const exFiltrados = biblioteca.filter(
+    (e) => (gEx === 'Todos' || e.grupo === gEx) && norm(e.nome + ' ' + e.foco + ' ' + e.equipamento).includes(norm(qEx))
+  )
+  const fichaAtual = fichas.find((f) => f.id === fichaId)
+  const alunoFicha = fichaAtual ? alunos.find((a) => a.id === fichaAtual.alunoId) : undefined
+
+  const tabs: { id: Tab; label: string; icon: ReactNode }[] = [
+    { id: 'exercicios', label: 'EXERCÍCIOS', icon: <Dumbbell size={14} /> },
+    { id: 'templates', label: 'TEMPLATES', icon: <Layers size={14} /> },
+    { id: 'alunos', label: 'ALUNOS', icon: <Users size={14} /> },
+  ]
+
+  /* =======================================================
+     RENDER
+     ======================================================= */
+  return (
+    <div className="min-h-screen">
+      {/* HEADER */}
+      <header className="sticky top-0 z-40 bg-[#080808]/80 backdrop-blur-md border-b border-[#1A1A1A]">
+        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-3">
+          <button onClick={() => { setView('main'); setTab('alunos') }}><LogoText size="small" variant="dark" /></button>
+          <nav className="flex items-center gap-1.5">
+            {tabs.map((t) => (
+              <button
+                key={t.id}
+                onClick={() => { setTab(t.id); setView('main') }}
+                className={`h-9 px-3 sm:px-4 rounded-[10px] text-[11px] font-bold inline-flex items-center gap-1.5 border transition ${
+                  tab === t.id ? 'bg-white text-black border-white' : 'bg-[#1A1A1A] border-[#222] text-[#888] hover:text-white'
+                }`}
+              >
+                {t.icon}<span className="hidden sm:inline">{t.label}</span>
+              </button>
+            ))}
+            <button onClick={() => setLogado(false)} title="Sair" className="h-9 w-9 rounded-[10px] bg-[#1A1A1A] border border-[#222] text-[#888] hover:text-white flex items-center justify-center">
+              <LogOut size={14} />
+            </button>
+          </nav>
+        </div>
+      </header>
+
+      <main className="max-w-7xl mx-auto px-4 py-6 pb-16">
+        {/* ================= ALUNOS ================= */}
+        {view === 'main' && tab === 'alunos' && (
+          <div className="space-y-6">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+              {[
+                ['Alunos', alunos.length],
+                ['Fichas', fichas.length],
+                ['Exercícios', biblioteca.length],
+                ['Templates', templates.length],
+              ].map(([l, v]) => (
+                <div key={l as string} className={cardCls + ' p-5'}>
+                  <p className={labelCls + ' mb-2'}>{l}</p>
+                  <p className="text-[28px] font-black leading-none">{v}</p>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <h2 className="text-[20px] font-extrabold">Meus Alunos</h2>
+              <div className="flex gap-2">
+                <button onClick={() => setModalAluno(true)} className={btnSec + ' h-11 flex-1 sm:flex-none'}><UserPlus size={14} />Novo Aluno</button>
+                <button onClick={() => abrirCriarFicha()} className={btnPri + ' flex-1 sm:flex-none'}><Plus size={15} />CRIAR FICHA</button>
+              </div>
+            </div>
+
+            <SearchBox value={qAluno} onChange={setQAluno} placeholder="Buscar aluno por nome ou objetivo..." />
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {alunosFiltrados.map((a) => {
+                const fs = fichas.filter((f) => f.alunoId === a.id)
+                return (
+                  <div key={a.id} className={cardCls + ' p-5 flex flex-col'}>
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-full bg-white text-black font-black text-[14px] flex items-center justify-center shrink-0">{iniciais(a.nome)}</div>
+                      <div className="min-w-0">
+                        <p className="text-[15px] font-extrabold truncate">{a.nome}</p>
+                        <p className="text-[10px] uppercase tracking-[0.12em] text-[#888] font-semibold">{a.objetivo}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-4 mt-4 text-[12px] text-[#bbb]">
+                      <span className="inline-flex items-center gap-1.5"><Weight size={13} className="text-[#777]" />{a.peso ? a.peso + ' kg' : '—'}</span>
+                      <span className="inline-flex items-center gap-1.5"><Ruler size={13} className="text-[#777]" />{a.altura ? a.altura + ' cm' : '—'}</span>
+                    </div>
+                    {a.observacoes && <p className="text-[12px] italic text-[#888] mt-3">{a.observacoes}</p>}
+
+                    <div className="mt-4 flex-1">
+                      <p className={labelCls}>Fichas ({fs.length})</p>
+                      {fs.length === 0 ? (
+                        <div className="border border-dashed border-[#2A2A2A] rounded-xl py-4 text-center text-[12px] text-[#666]">Nenhuma ficha criada</div>
+                      ) : (
+                        <div className="space-y-1.5">
+                          {fs.map((f) => (
+                            <button
+                              key={f.id}
+                              onClick={() => { setFichaId(f.id); setView('ficha') }}
+                              className="w-full flex items-center gap-2 bg-[#0E0E0E] border border-[#1E1E1E] hover:border-[#333] rounded-[10px] px-3 py-2.5 text-left transition"
+                            >
+                              <FileText size={14} className="text-[#777] shrink-0" />
+                              <span className="flex-1 min-w-0">
+                                <span className="block text-[12px] font-semibold truncate">{f.nome}</span>
+                                <span className="block text-[10px] text-[#777]">{f.data} • {f.exercicios.length} exercícios</span>
+                              </span>
+                              <ChevronRight size={14} className="text-[#555]" />
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 mt-4">
+                      <a href={`https://wa.me/${telefone(a.whatsapp)}`} target="_blank" rel="noreferrer" className={btnSec}><MessageCircle size={13} />WhatsApp</a>
+                      <button onClick={() => abrirCriarFicha(a.id)} className={btnSec}><Plus size={13} />Nova Ficha</button>
+                      <button onClick={() => setAnexar({ templateId: templates[0]?.id ?? '', alunoId: a.id })} className={btnSec}><Layers size={13} />Template</button>
+                    </div>
+                  </div>
+                )
+              })}
+              {alunosFiltrados.length === 0 && <p className="text-[13px] text-[#666] col-span-full text-center py-10">Nenhum aluno encontrado.</p>}
+            </div>
+          </div>
+        )}
+
+        {/* ================= TEMPLATES ================= */}
+        {view === 'main' && tab === 'templates' && (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h2 className="text-[20px] font-extrabold">Templates de Fichas</h2>
+                <p className="text-[12px] text-[#888] mt-1">Crie modelos prontos e anexe aos alunos na época certa</p>
+              </div>
+              <button onClick={() => abrirCriarTemplate()} className={btnPri}><Plus size={15} />NOVO TEMPLATE</button>
+            </div>
+            <SearchBox value={qTemplate} onChange={setQTemplate} placeholder="Buscar template por nome, objetivo ou nível..." />
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {templatesFiltrados.map((t) => (
+                <div key={t.id} className={cardCls + ' p-5 flex flex-col'}>
+                  <p className="text-[14px] font-bold">{t.nome}</p>
+                  <div className="flex flex-wrap gap-1.5 mt-2.5">
+                    <span className="px-2 py-0.5 rounded-md bg-white text-black text-[10px] font-bold">{t.objetivo}</span>
+                    <span className={`px-2 py-0.5 rounded-md border text-[10px] font-bold ${nivelCls[t.nivel]}`}>{t.nivel}</span>
+                  </div>
+                  <p className="text-[11px] text-[#888] mt-3 leading-relaxed">{t.descricao}</p>
+                  <ul className="mt-3 space-y-1 flex-1">
+                    {t.exercicios.slice(0, 3).map((e) => (
+                      <li key={e.id} className="text-[11px] text-[#bbb] truncate">• {e.nome} <span className="text-[#666]">{e.series}x{e.reps}</span></li>
+                    ))}
+                    {t.exercicios.length > 3 && <li className="text-[11px] text-[#666]">+ {t.exercicios.length - 3} exercícios</li>}
+                  </ul>
+                  <p className={labelCls + ' mt-3 mb-0'}>{t.exercicios.length} exercícios</p>
+                  <button onClick={() => setAnexar({ templateId: t.id, alunoId: alunos[0]?.id ?? '' })} className={btnPri + ' w-full mt-3'}><Paperclip size={14} />Anexar ao Aluno</button>
+                  <div className="grid grid-cols-4 gap-2 mt-2">
+                    <button onClick={() => abrirCriarFicha(undefined, t)} className={btnSec + ' px-0'} title="Usar em nova ficha"><ClipboardCopy size={13} /></button>
+                    <button onClick={() => abrirCriarTemplate(t)} className={btnSec + ' px-0'} title="Editar"><Pencil size={13} /></button>
+                    <button onClick={() => duplicarTemplate(t)} className={btnSec + ' px-0'} title="Duplicar"><Copy size={13} /></button>
+                    <button onClick={() => excluirTemplate(t)} className={btnSec + ' px-0 text-red-400'} title="Excluir"><Trash2 size={13} /></button>
+                  </div>
+                  <div className="grid grid-cols-4 gap-2 mt-1 text-[9px] uppercase tracking-[0.08em] text-[#666] text-center font-semibold">
+                    <span>Usar</span><span>Editar</span><span>Duplicar</span><span>Excluir</span>
+                  </div>
+                </div>
+              ))}
+              {templatesFiltrados.length === 0 && <p className="text-[13px] text-[#666] col-span-full text-center py-10">Nenhum template encontrado.</p>}
+            </div>
+          </div>
+        )}
+
+        {/* ================= EXERCÍCIOS ================= */}
+        {view === 'main' && tab === 'exercicios' && (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h2 className="text-[20px] font-extrabold">Biblioteca de Exercícios</h2>
+                <p className="text-[12px] text-[#888] mt-1">{biblioteca.length} exercícios • {categorias.length} categorias</p>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => setModalCat(true)} className={btnSec + ' h-11 flex-1 sm:flex-none'}><FolderPlus size={14} />NOVA CATEGORIA</button>
+                <button onClick={() => abrirModalEx(null)} className={btnPri + ' flex-1 sm:flex-none'}><Plus size={15} />NOVO EXERCÍCIO</button>
+              </div>
+            </div>
+            <SearchBox value={qEx} onChange={setQEx} placeholder="Buscar por nome, foco ou equipamento..." />
+            <Chips options={['Todos', ...categorias]} value={gEx} onChange={setGEx} />
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {exFiltrados.map((e) => (
+                <div key={e.id} className={cardCls + ' p-4 flex flex-col'}>
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="text-[13px] font-bold leading-snug">{e.nome}</p>
+                    <span className="shrink-0 px-2 py-0.5 rounded-md bg-white text-black text-[10px] font-bold">{e.grupo}</span>
+                  </div>
+                  <p className="text-[11px] text-[#999] mt-2"><span className="text-[#666]">Equipamento:</span> {e.equipamento || '—'}</p>
+                  <p className="text-[11px] text-[#999] mt-0.5"><span className="text-[#666]">Foco:</span> {e.foco || '—'}</p>
+                  <p className="text-[11px] text-[#777] mt-2 line-clamp-2 flex-1">{e.instrucoes}</p>
+                  <p className="text-[10px] uppercase tracking-[0.12em] text-[#666] font-semibold mt-3">
+                    Vídeo: {e.video_url ? 'Configurado' : 'Em branco (null)'}
+                  </p>
+                  <div className="grid grid-cols-3 gap-2 mt-3">
+                    <button onClick={() => setExDetalhe(e)} className={btnSec}><Play size={12} />Ver</button>
+                    <button onClick={() => abrirModalEx(e)} className={btnSec}><Pencil size={12} />Editar</button>
+                    <button onClick={() => excluirEx(e)} className={btnSec + ' text-red-400'}><Trash2 size={12} />Excluir</button>
+                  </div>
+                </div>
+              ))}
+              {exFiltrados.length === 0 && <p className="text-[13px] text-[#666] col-span-full text-center py-10">Nenhum exercício encontrado.</p>}
+            </div>
+          </div>
+        )}
+
+        {/* ================= CRIAR TEMPLATE ================= */}
+        {view === 'criarTemplate' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <button onClick={() => { setView('main'); setTab('templates') }} className={btnSec}><ChevronLeft size={14} />Voltar</button>
+              <h2 className="text-[16px] font-extrabold">{tplId ? 'Editar Template' : 'Novo Template'}</h2>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-[42%_minmax(0,1fr)] gap-4 items-start">
+              <Biblioteca
+                biblioteca={biblioteca} categorias={categorias} ids={tplExs.map((e) => e.id)}
+                onAdd={(e) => setTplExs([...tplExs, { ...e, series: '3', reps: '10-12', carga: '', descanso: '60s' }])}
+                onRemove={(id) => setTplExs(tplExs.filter((e) => e.id !== id))}
+              />
+              <div className={cardCls + ' p-4 space-y-4'}>
+                <Field label="Nome do template *">
+                  <input className={inputCls} value={tplNome} onChange={(e) => setTplNome(e.target.value)} placeholder="Ex: Hipertrofia ABC" />
+                </Field>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Nível">
+                    <select className={inputCls} value={tplNivel} onChange={(e) => setTplNivel(e.target.value as Nivel)}>
+                      {NIVEIS.map((n) => <option key={n}>{n}</option>)}
+                    </select>
+                  </Field>
+                  <Field label="Objetivo">
+                    <select className={inputCls} value={tplObj} onChange={(e) => setTplObj(e.target.value as Objetivo)}>
+                      {OBJETIVOS.map((o) => <option key={o}>{o}</option>)}
+                    </select>
+                  </Field>
+                </div>
+                <Field label="Descrição">
+                  <textarea className={textareaCls} rows={2} value={tplDesc} onChange={(e) => setTplDesc(e.target.value)} placeholder="Para quem é esse template?" />
+                </Field>
+                <div>
+                  <p className={labelCls}>Exercícios ({tplExs.length})</p>
+                  <ListaEditor lista={tplExs} setLista={setTplExs} />
+                </div>
+                <button onClick={salvarTemplate} disabled={!tplNome.trim() || tplExs.length === 0} className={btnPri + ' w-full'}><Save size={14} />SALVAR TEMPLATE</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ================= CRIAR FICHA ================= */}
+        {view === 'criarFicha' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-3">
+              <button onClick={() => { setView('main'); setTab('alunos') }} className={btnSec}><ChevronLeft size={14} />Voltar</button>
+              <h2 className="text-[16px] font-extrabold">Nova Ficha</h2>
+            </div>
+            <div className="grid grid-cols-1 lg:grid-cols-[42%_minmax(0,1fr)] gap-4 items-start">
+              <Biblioteca
+                biblioteca={biblioteca} categorias={categorias} ids={fExs.map((e) => e.id)}
+                onAdd={(e) => setFExs([...fExs, { ...e, series: '3', reps: '10-12', carga: '', descanso: '60s' }])}
+                onRemove={(id) => setFExs(fExs.filter((e) => e.id !== id))}
+              />
+              <div className={cardCls + ' p-4 space-y-4'}>
+                <Field label="Aluno *">
+                  <select className={inputCls} value={fAluno} onChange={(e) => setFAluno(e.target.value)}>
+                    <option value="">Selecione o aluno</option>
+                    {alunos.map((a) => <option key={a.id} value={a.id}>{a.nome}</option>)}
+                  </select>
+                </Field>
+                <Field label="Nome da ficha *">
+                  <input className={inputCls} value={fNome} onChange={(e) => setFNome(e.target.value)} placeholder="Ex: Treino A - Peito e Tríceps" />
+                </Field>
+                <Field label="Carregar template">
+                  <select className={inputCls} value={fTplId} onChange={(e) => carregarTemplate(e.target.value)}>
+                    <option value="">Nenhum</option>
+                    {templates.map((t) => <option key={t.id} value={t.id}>{t.nome}</option>)}
+                  </select>
+                </Field>
+                <div>
+                  <p className={labelCls}>Exercícios ({fExs.length})</p>
+                  <ListaEditor lista={fExs} setLista={setFExs} />
+                </div>
+                <button onClick={salvarFicha} disabled={!fAluno || !fNome.trim() || fExs.length === 0} className={btnPri + ' w-full'}><Save size={14} />SALVAR FICHA</button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ================= FICHA DETALHE ================= */}
+        {view === 'ficha' && fichaAtual && (
+          <div className="space-y-4 max-w-3xl mx-auto">
+            <div className="flex flex-wrap items-center gap-2">
+              <button onClick={() => { setView('main'); setTab('alunos') }} className={btnSec}><ChevronLeft size={14} />Voltar</button>
+              <div className="flex-1" />
+              <button disabled={exportando} onClick={() => exportarPNG(fichaAtual.nome)} className={btnSec}><ImageIcon size={13} />Imagem</button>
+              <button disabled={exportando} onClick={() => exportarPDF(fichaAtual.nome)} className={btnSec}><FileText size={13} />PDF</button>
+              <button onClick={() => enviarWhats(fichaAtual, alunoFicha)} className={btnSec + ' !bg-green-600/20 !border-green-600/40 text-green-400'}><MessageCircle size={13} />WhatsApp</button>
+              <button onClick={() => excluirFicha(fichaAtual)} className={btnSec + ' text-red-400'}><Trash2 size={13} /></button>
+            </div>
+            {exportando && <p className="text-[11px] text-[#888]">Gerando arquivo...</p>}
+
+            <div ref={fichaRef} id="ficha-para-exportar" className="bg-white text-black rounded-2xl overflow-hidden">
+              <div className="bg-black px-5 py-5 flex items-center justify-between">
+                <LogoText size="default" variant="dark" />
+                <p className="text-[11px] text-white/70 font-medium">{fichaAtual.data}</p>
+              </div>
+              <div className="px-5 pt-5 pb-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-[22px] font-extrabold leading-tight">{alunoFicha?.nome ?? 'Aluno removido'}</h2>
+                  {alunoFicha && <span className="px-2 py-0.5 rounded-md bg-black text-white text-[10px] font-bold">{alunoFicha.objetivo}</span>}
+                </div>
+                {alunoFicha && (
+                  <p className="text-[12px] text-neutral-600 mt-1.5">
+                    {alunoFicha.peso ? alunoFicha.peso + ' kg' : '—'} • {alunoFicha.altura ? alunoFicha.altura + ' cm' : '—'}
+                  </p>
+                )}
+                <p className="text-[13px] font-bold mt-2 uppercase tracking-wide">{fichaAtual.nome}</p>
+              </div>
+              <div className="px-3 pb-5">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-neutral-100 text-[10px] uppercase tracking-[0.1em] text-neutral-600">
+                      <th className="px-3 py-2.5 font-bold">Exercício</th>
+                      <th className="px-2 py-2.5 font-bold text-center">Séries x Reps</th>
+                      <th className="px-2 py-2.5 font-bold text-center">Carga</th>
+                      <th className="px-2 py-2.5 font-bold text-center">Descanso</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {fichaAtual.exercicios.map((e, i) => (
+                      <tr key={e.id + i} className="border-b border-neutral-200">
+                        <td className="px-3 py-3 align-top">
+                          <button onClick={() => setExDetalhe(e)} className="text-left text-[13px] font-bold hover:underline">
+                            {i + 1}. {e.nome}
+                          </button>
+                          <p className="text-[10px] text-neutral-500 mt-0.5">{e.grupo}</p>
+                        </td>
+                        <td className="px-2 py-3 text-center text-[12px] font-semibold align-top whitespace-nowrap">{e.series} x {e.reps}</td>
+                        <td className="px-2 py-3 text-center text-[12px] align-top">{e.carga || '—'}</td>
+                        <td className="px-2 py-3 text-center text-[12px] align-top whitespace-nowrap">{e.descanso || '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <p className="text-center text-[10px] text-neutral-400 mt-4 uppercase tracking-[0.15em]">Treino profissional. Resultados reais.</p>
+              </div>
+            </div>
+          </div>
+        )}
+        {view === 'ficha' && !fichaAtual && (
+          <div className="text-center py-20 text-[13px] text-[#888]">
+            Ficha não encontrada.
+            <div className="mt-4"><button onClick={() => { setView('main'); setTab('alunos') }} className={btnSec}>Voltar</button></div>
+          </div>
+        )}
+      </main>
+
+      {/* ================= MODAL NOVO ALUNO ================= */}
+      {modalAluno && (
+        <Modal title="Novo Aluno" onClose={() => setModalAluno(false)}>
+          <div className="space-y-4">
+            <Field label="Nome *">
+              <input className={inputCls} value={formAluno.nome} onChange={(e) => setFormAluno({ ...formAluno, nome: e.target.value })} placeholder="Nome completo" />
+            </Field>
+            <Field label="Objetivo">
+              <select className={inputCls} value={formAluno.objetivo} onChange={(e) => setFormAluno({ ...formAluno, objetivo: e.target.value as Objetivo })}>
+                {OBJETIVOS.map((o) => <option key={o}>{o}</option>)}
+              </select>
+            </Field>
+            <Field label="WhatsApp">
+              <input className={inputCls} inputMode="tel" value={formAluno.whatsapp} onChange={(e) => setFormAluno({ ...formAluno, whatsapp: e.target.value })} placeholder="(11) 99999-9999" />
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Peso (kg)">
+                <input className={inputCls} inputMode="decimal" value={formAluno.peso} onChange={(e) => setFormAluno({ ...formAluno, peso: e.target.value })} placeholder="78" />
+              </Field>
+              <Field label="Altura (cm)">
+                <input className={inputCls} inputMode="numeric" value={formAluno.altura} onChange={(e) => setFormAluno({ ...formAluno, altura: e.target.value })} placeholder="178" />
+              </Field>
+            </div>
+            <Field label="Observações">
+              <textarea className={textareaCls} rows={3} value={formAluno.observacoes} onChange={(e) => setFormAluno({ ...formAluno, observacoes: e.target.value })} placeholder="Lesões, restrições, preferências..." />
+            </Field>
+            <button onClick={salvarAluno} disabled={!formAluno.nome.trim()} className={btnPri + ' w-full'}>SALVAR ALUNO</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ================= MODAL ANEXAR TEMPLATE ================= */}
+      {anexar && (
+        <Modal title="Anexar Template ao Aluno" onClose={() => setAnexar(null)}>
+          <div className="space-y-4">
+            <Field label="Aluno">
+              <select className={inputCls} value={anexar.alunoId} onChange={(e) => setAnexar({ ...anexar, alunoId: e.target.value })}>
+                <option value="">Selecione o aluno</option>
+                {alunos.map((a) => <option key={a.id} value={a.id}>{a.nome}</option>)}
+              </select>
+            </Field>
+            <Field label="Template">
+              <select className={inputCls} value={anexar.templateId} onChange={(e) => setAnexar({ ...anexar, templateId: e.target.value })}>
+                <option value="">Selecione o template</option>
+                {templates.map((t) => <option key={t.id} value={t.id}>{t.nome}</option>)}
+              </select>
+            </Field>
+            {(() => {
+              const t = templates.find((x) => x.id === anexar.templateId)
+              return t ? (
+                <div className="bg-[#0E0E0E] border border-[#1E1E1E] rounded-xl p-3">
+                  <p className="text-[12px] font-bold">{t.nome}</p>
+                  <p className="text-[11px] text-[#888] mt-1">{t.exercicios.length} exercícios • {t.objetivo} • {t.nivel}</p>
+                </div>
+              ) : null
+            })()}
+            <button onClick={confirmarAnexo} disabled={!anexar.alunoId || !anexar.templateId} className={btnPri + ' w-full'}><Paperclip size={14} />ANEXAR AO ALUNO</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ================= MODAL NOVO/EDITAR EXERCÍCIO ================= */}
+      {modalEx && (
+        <Modal title={modalEx.editing ? 'Editar Exercício' : 'Novo Exercício'} onClose={() => setModalEx(null)}>
+          <div className="space-y-4">
+            <Field label="Nome *">
+              <input className={inputCls} value={formEx.nome} onChange={(e) => setFormEx({ ...formEx, nome: e.target.value })} placeholder="Ex: Supino Reto Barra" />
+            </Field>
+            <Field label="Categoria / Grupo">
+              <select className={inputCls} value={formEx.grupo} onChange={(e) => setFormEx({ ...formEx, grupo: e.target.value })}>
+                {categorias.map((c) => <option key={c}>{c}</option>)}
+              </select>
+            </Field>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <Field label="Equipamento">
+                <input className={inputCls} value={formEx.equipamento} onChange={(e) => setFormEx({ ...formEx, equipamento: e.target.value })} placeholder="Barra, halteres..." />
+              </Field>
+              <Field label="Músculo foco">
+                <input className={inputCls} value={formEx.foco} onChange={(e) => setFormEx({ ...formEx, foco: e.target.value })} placeholder="Peitoral maior..." />
+              </Field>
+            </div>
+            <Field label="Instruções">
+              <textarea className={textareaCls} rows={4} value={formEx.instrucoes} onChange={(e) => setFormEx({ ...formEx, instrucoes: e.target.value })} placeholder="Como executar o movimento..." />
+            </Field>
+            <Field label="Video URL">
+              <input className={inputCls} value={formEx.video_url} onChange={(e) => setFormEx({ ...formEx, video_url: e.target.value })} placeholder="Deixe em branco" />
+            </Field>
+            <Field label="GIF URL">
+              <input className={inputCls} value={formEx.gif_url} onChange={(e) => setFormEx({ ...formEx, gif_url: e.target.value })} placeholder="Deixe em branco" />
+            </Field>
+            <button onClick={salvarEx} disabled={!formEx.nome.trim()} className={btnPri + ' w-full'}>{modalEx.editing ? 'SALVAR ALTERAÇÕES' : 'CRIAR EXERCÍCIO'}</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ================= MODAL NOVA CATEGORIA ================= */}
+      {modalCat && (
+        <Modal title="Nova Categoria" onClose={() => setModalCat(false)}>
+          <div className="space-y-4">
+            <Field label="Nome da categoria">
+              <input
+                className={inputCls} value={novaCat} onChange={(e) => setNovaCat(e.target.value)} placeholder="Ex: Mobilidade"
+                onKeyDown={(e) => e.key === 'Enter' && criarCategoria()}
+              />
+            </Field>
+            <div>
+              <p className={labelCls}>Categorias atuais</p>
+              <div className="flex flex-wrap gap-1.5">
+                {categorias.map((c) => (
+                  <span key={c} className="px-2.5 py-1 rounded-lg bg-[#1A1A1A] border border-[#222] text-[11px] font-semibold">{c}</span>
+                ))}
+              </div>
+            </div>
+            <button onClick={criarCategoria} disabled={!novaCat.trim()} className={btnPri + ' w-full'}>CRIAR CATEGORIA</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* ================= MODAL EXERCÍCIO DETALHE ================= */}
+      {exDetalhe && (
+        <Overlay onClose={() => setExDetalhe(null)}>
+          <div className="relative aspect-video bg-black flex flex-col items-center justify-center gap-2 rounded-t-2xl">
+            <button onClick={() => setExDetalhe(null)} className="absolute top-3 right-3 w-8 h-8 rounded-lg bg-[#1A1A1A] border border-[#222] flex items-center justify-center text-[#888] hover:text-white">
+              <X size={15} />
+            </button>
+            <div className="w-14 h-14 rounded-full bg-white/10 border border-white/20 flex items-center justify-center"><Play size={22} /></div>
+            <p className="text-[11px] text-[#888] px-6 text-center">
+              {exDetalhe.video_url ? 'Vídeo configurado: ' + exDetalhe.video_url : 'Vídeo em breve - Adicione seu asset em video_url'}
+            </p>
+          </div>
+          <div className="p-5 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <h3 className="text-[16px] font-extrabold leading-snug">{exDetalhe.nome}</h3>
+              <span className="shrink-0 px-2 py-0.5 rounded-md bg-white text-black text-[10px] font-bold">{exDetalhe.grupo}</span>
+            </div>
+            <div>
+              <p className={labelCls}>Foco</p>
+              <p className="text-[13px] text-[#ddd]">{exDetalhe.foco || '—'}</p>
+            </div>
+            <div>
+              <p className={labelCls}>Instruções</p>
+              <p className="text-[13px] text-[#bbb] leading-relaxed">{exDetalhe.instrucoes || '—'}</p>
+            </div>
+            <div>
+              <p className={labelCls}>Equipamento</p>
+              <p className="text-[13px] text-[#ddd]">{exDetalhe.equipamento || '—'}</p>
+            </div>
+            {!exDetalhe.video_url && <p className="text-[11px] text-[#666] italic">Nota: video_url está vazio (null).</p>}
+          </div>
+        </Overlay>
+      )}
+    </div>
+  )
+}
