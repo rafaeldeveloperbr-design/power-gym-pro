@@ -6,6 +6,10 @@ import {
   Weight, Ruler, FolderPlus, LogOut, Paperclip, UserPlus, Save,
 } from 'lucide-react'
 
+import { Capacitor } from '@capacitor/core'
+import { Share } from '@capacitor/share'
+import { Filesystem, Directory } from '@capacitor/filesystem'
+
 /* =========================================================
    TIPOS
    ========================================================= */
@@ -745,14 +749,19 @@ export default function App() {
     setMenuWhats(false)
     setExportando(true)
 
+    const appNativo = Capacitor.isNativePlatform()
+
     const celular = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
-    const suportaShare = celular &&
+
+    const suportaShare = !appNativo && celular &&
       typeof navigator.share === 'function' &&
       typeof navigator.canShare === 'function'
 
     // No computador, abre uma aba imediatamente
     // para evitar bloqueio de pop-ups após o processamento.
-    const abaWhats = !suportaShare ? window.open('', '_blank') : null
+    const abaWhats = !appNativo && !suportaShare
+      ? window.open('', '_blank')
+      : null
 
     try {
       const canvas = await capturar()
@@ -798,6 +807,45 @@ export default function App() {
 
         blob = pdf.output('blob')
       }
+
+
+      if (appNativo) {
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const leitor = new FileReader()
+
+          leitor.onload = () => {
+            const resultado = leitor.result
+
+            if (typeof resultado !== 'string') {
+              reject(new Error('Falha ao converter arquivo'))
+              return
+            }
+
+            resolve(resultado.split(',')[1])
+          }
+
+          leitor.onerror = () => reject(
+            new Error('Falha ao ler arquivo')
+          )
+
+          leitor.readAsDataURL(blob)
+        })
+
+        const salvo = await Filesystem.writeFile({
+          path: nome,
+          data: base64,
+          directory: Directory.Cache,
+        })
+
+        await Share.share({
+          title: f.nome,
+          files: [salvo.uri],
+          dialogTitle: 'Compartilhar ficha de treino',
+        })
+
+        return
+      }
+
 
       const arquivo = new File(
         [blob],
