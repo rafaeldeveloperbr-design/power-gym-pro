@@ -347,9 +347,8 @@ function Chips({ options, value, onChange }: { options: string[]; value: string;
         <button
           key={o}
           onClick={() => onChange(o)}
-          className={`shrink-0 h-8 px-3 rounded-[10px] text-[11px] font-bold border transition ${
-            value === o ? 'bg-white text-black border-white' : 'bg-[#1A1A1A] text-[#888] border-[#222] hover:text-white'
-          }`}
+          className={`shrink-0 h-8 px-3 rounded-[10px] text-[11px] font-bold border transition ${value === o ? 'bg-white text-black border-white' : 'bg-[#1A1A1A] text-[#888] border-[#222] hover:text-white'
+            }`}
         >
           {o}
         </button>
@@ -385,9 +384,8 @@ function Biblioteca({
               </div>
               <button
                 onClick={() => (on ? onRemove(e.id) : onAdd(e))}
-                className={`w-8 h-8 shrink-0 rounded-lg flex items-center justify-center border transition ${
-                  on ? 'bg-[#1E1E1E] border-[#2A2A2A] text-red-400' : 'bg-white border-white text-black hover:bg-[#E5E5E5]'
-                }`}
+                className={`w-8 h-8 shrink-0 rounded-lg flex items-center justify-center border transition ${on ? 'bg-[#1E1E1E] border-[#2A2A2A] text-red-400' : 'bg-white border-white text-black hover:bg-[#E5E5E5]'
+                  }`}
                 aria-label={on ? 'Remover' : 'Adicionar'}
               >
                 {on ? <Minus size={14} /> : <Plus size={14} />}
@@ -408,7 +406,7 @@ function ListaEditor({ lista, setLista }: { lista: ExercicioFicha[]; setLista: (
     const j = i + d
     if (j < 0 || j >= lista.length) return
     const c = [...lista]
-    ;[c[i], c[j]] = [c[j], c[i]]
+      ;[c[i], c[j]] = [c[j], c[i]]
     setLista(c)
   }
   if (lista.length === 0)
@@ -505,6 +503,7 @@ export default function App() {
   const [fichaId, setFichaId] = useState<string | null>(null)
   const fichaRef = useRef<HTMLDivElement>(null)
   const [exportando, setExportando] = useState(false)
+  const [menuWhats, setMenuWhats] = useState(false)
 
   useEffect(() => { window.scrollTo({ top: 0 }) }, [view, tab])
 
@@ -693,14 +692,172 @@ export default function App() {
     }
     setExportando(false)
   }
+
   const enviarWhats = (f: Ficha, a?: Aluno) => {
-    const linhas = f.exercicios.map(
-      (e, i) => `${i + 1}. *${e.nome}* — ${e.series}x${e.reps}${e.carga ? ` | Carga: ${e.carga}` : ''}${e.descanso ? ` | Descanso: ${e.descanso}` : ''}`
-    )
-    const msg = `*POWER GYM PRO*\nOlá${a ? ', ' + a.nome.split(' ')[0] : ''}! Segue sua ficha: *${f.nome}*\n\n${linhas.join('\n')}\n\nBons treinos! 💪`
+    const exercicios = f.exercicios.map((e, i) => {
+      const detalhes = [
+        `• Séries: ${e.series}`,
+        `• Repetições: ${e.reps}`,
+        e.carga ? `• Carga: ${e.carga}` : '',
+        e.descanso ? `• Descanso: ${e.descanso}` : '',
+      ].filter(Boolean).join('\n')
+
+      return `*${String(i + 1).padStart(2, '0')}. ${e.nome}*\n${detalhes}`
+    })
+
+    const msg = [
+      '💪 *POWER GYM PRO*',
+      '━━━━━━━━━━━━━━',
+      '📋 *FICHA DE TREINO*',
+      '',
+      `👤 *Aluno:* ${a?.nome ?? 'Aluno'}`,
+      a ? `🎯 *Objetivo:* ${a.objetivo}` : '',
+      `🏋️ *Treino:* ${f.nome}`,
+      '',
+      '━━━━━━━━━━━━━━',
+      '*EXERCÍCIOS*',
+      '',
+      exercicios.join('\n\n'),
+      '',
+      '━━━━━━━━━━━━━━',
+      '🔥 *Bons treinos!*',
+      'Consistência é a chave dos resultados. 💪',
+    ].filter((linha) => linha !== undefined && linha !== null).join('\n')
+
     const tel = a ? telefone(a.whatsapp) : ''
-    window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msg)}`, '_blank')
+    window.open(
+      `https://wa.me/${tel}?text=${encodeURIComponent(msg)}`,
+      '_blank',
+      'noopener,noreferrer'
+    )
+    setMenuWhats(false)
   }
+
+
+
+  const compartilharArquivoWhats = async (
+    formato: 'png' | 'pdf',
+    f: Ficha,
+    aluno?: Aluno
+  ) => {
+    if (!fichaRef.current || exportando) return
+
+    setMenuWhats(false)
+    setExportando(true)
+
+    const celular = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+    const suportaShare = celular &&
+      typeof navigator.share === 'function' &&
+      typeof navigator.canShare === 'function'
+
+    // No computador, abre uma aba imediatamente
+    // para evitar bloqueio de pop-ups após o processamento.
+    const abaWhats = !suportaShare ? window.open('', '_blank') : null
+
+    try {
+      const canvas = await capturar()
+      const nome = `ficha-${slug(f.nome)}.${formato}`
+
+      let blob: Blob
+
+      if (formato === 'png') {
+        blob = await new Promise<Blob>((resolve, reject) => {
+          canvas.toBlob(
+            (resultado) => resultado
+              ? resolve(resultado)
+              : reject(new Error('Falha ao gerar PNG')),
+            'image/png'
+          )
+        })
+      } else {
+        await loadScript(
+          'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
+          () => !!(window as any).jspdf
+        )
+
+        const { jsPDF } = (window as any).jspdf
+        const pdf = new jsPDF('p', 'mm', 'a4')
+
+        const pw = 210, ph = 297
+        let w = pw
+        let h = (canvas.height * pw) / canvas.width
+
+        if (h > ph) {
+          h = ph
+          w = (canvas.width * ph) / canvas.height
+        }
+
+        pdf.addImage(
+          canvas.toDataURL('image/png'),
+          'PNG',
+          (pw - w) / 2,
+          0,
+          w,
+          h
+        )
+
+        blob = pdf.output('blob')
+      }
+
+      const arquivo = new File(
+        [blob],
+        nome,
+        {
+          type: formato === 'png'
+            ? 'image/png'
+            : 'application/pdf'
+        }
+      )
+
+      if (suportaShare && navigator.canShare({ files: [arquivo] })) {
+        try {
+          await navigator.share({
+            files: [arquivo],
+            title: f.nome,
+          })
+          return
+        } catch (erro) {
+          // Cancelar o compartilhamento não é um erro.
+          if (erro instanceof DOMException && erro.name === 'AbortError') {
+            return
+          }
+        }
+      }
+
+      // Alternativa: baixar o arquivo.
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = nome
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+
+      window.setTimeout(() => URL.revokeObjectURL(url), 60000)
+
+      const tel = aluno ? telefone(aluno.whatsapp) : ''
+      const destino = `https://wa.me/${tel}`
+
+      if (abaWhats && !abaWhats.closed) {
+        abaWhats.location.href = destino
+      } else if (!suportaShare) {
+        window.alert(
+          'Arquivo baixado. Abra a conversa do aluno no WhatsApp e anexe o arquivo manualmente.'
+        )
+      } else {
+        window.alert(
+          'Arquivo baixado. Abra o WhatsApp e anexe o arquivo manualmente.'
+        )
+      }
+    } catch (erro) {
+      abaWhats?.close()
+      console.error('Erro ao preparar arquivo:', erro)
+      window.alert('Não foi possível preparar o arquivo.')
+    } finally {
+      setExportando(false)
+    }
+  }
+
 
   /* ---------- derivados ---------- */
   const alunosFiltrados = alunos.filter((a) => norm(a.nome + ' ' + a.objetivo).includes(norm(qAluno)))
@@ -731,9 +888,8 @@ export default function App() {
               <button
                 key={t.id}
                 onClick={() => { setTab(t.id); setView('main') }}
-                className={`h-9 px-3 sm:px-4 rounded-[10px] text-[11px] font-bold inline-flex items-center gap-1.5 border transition ${
-                  tab === t.id ? 'bg-white text-black border-white' : 'bg-[#1A1A1A] border-[#222] text-[#888] hover:text-white'
-                }`}
+                className={`h-9 px-3 sm:px-4 rounded-[10px] text-[11px] font-bold inline-flex items-center gap-1.5 border transition ${tab === t.id ? 'bg-white text-black border-white' : 'bg-[#1A1A1A] border-[#222] text-[#888] hover:text-white'
+                  }`}
               >
                 {t.icon}<span className="hidden sm:inline">{t.label}</span>
               </button>
@@ -1001,7 +1157,62 @@ export default function App() {
               <div className="flex-1" />
               <button disabled={exportando} onClick={() => exportarPNG(fichaAtual.nome)} className={btnSec}><ImageIcon size={13} />Imagem</button>
               <button disabled={exportando} onClick={() => exportarPDF(fichaAtual.nome)} className={btnSec}><FileText size={13} />PDF</button>
-              <button onClick={() => enviarWhats(fichaAtual, alunoFicha)} className={btnSec + ' !bg-green-600/20 !border-green-600/40 text-green-400'}><MessageCircle size={13} />WhatsApp</button>
+
+              <div className="relative">
+                <button
+                  disabled={exportando}
+                  onClick={() => setMenuWhats(!menuWhats)}
+                  className={
+                    btnSec +
+                    ' !bg-green-600/20 !border-green-600/40 text-green-400'
+                  }
+                >
+                  <MessageCircle size={13} />
+                  WhatsApp
+                  <ChevronDown size={12} />
+                </button>
+
+                {menuWhats && (
+                  <>
+                    <button
+                      type="button"
+                      aria-label="Fechar menu"
+                      className="fixed inset-0 z-40 cursor-default"
+                      onClick={() => setMenuWhats(false)}
+                    />
+
+                    <div className="absolute right-0 top-full mt-2 w-52 bg-[#1A1A1A] border border-[#333] rounded-xl shadow-2xl z-50 p-1.5">
+                      <button
+                        className="w-full flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-[#292929] text-left text-sm"
+                        onClick={() => enviarWhats(fichaAtual, alunoFicha)}
+                      >
+                        <MessageCircle size={16} className="text-green-400" />
+                        Enviar texto
+                      </button>
+
+                      <button
+                        className="w-full flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-[#292929] text-left text-sm"
+                        onClick={() =>
+                          compartilharArquivoWhats('png', fichaAtual, alunoFicha)
+                        }
+                      >
+                        <ImageIcon size={16} className="text-blue-400" />
+                        Enviar imagem
+                      </button>
+
+                      <button
+                        className="w-full flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-[#292929] text-left text-sm"
+                        onClick={() =>
+                          compartilharArquivoWhats('pdf', fichaAtual, alunoFicha)
+                        }
+                      >
+                        <FileText size={16} className="text-red-400" />
+                        Enviar PDF
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
               <button onClick={() => excluirFicha(fichaAtual)} className={btnSec + ' text-red-400'}><Trash2 size={13} /></button>
             </div>
             {exportando && <p className="text-[11px] text-[#888]">Gerando arquivo...</p>}
