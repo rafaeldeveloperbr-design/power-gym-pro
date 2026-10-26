@@ -9,6 +9,8 @@ import {
 import { Capacitor } from '@capacitor/core'
 import { Share } from '@capacitor/share'
 import { Filesystem, Directory } from '@capacitor/filesystem'
+import html2canvas from 'html2canvas'
+import { jsPDF } from 'jspdf'
 
 /* =========================================================
    TIPOS
@@ -270,16 +272,6 @@ const nivelCls: Record<Nivel, string> = {
   'INTERMEDIÁRIO': 'bg-yellow-500/15 text-yellow-400 border-yellow-500/30',
   'AVANÇADO': 'bg-red-500/15 text-red-400 border-red-500/30',
 }
-
-const loadScript = (src: string, check: () => boolean) =>
-  new Promise<void>((resolve, reject) => {
-    if (check()) return resolve()
-    const s = document.createElement('script')
-    s.src = src
-    s.onload = () => resolve()
-    s.onerror = () => reject(new Error('Falha ao carregar ' + src))
-    document.head.appendChild(s)
-  })
 
 /* =========================================================
    COMPONENTES (nível de módulo para não perder foco dos inputs)
@@ -660,8 +652,17 @@ export default function App() {
 
   /* ---------- AÇÕES: exportação ---------- */
   const capturar = async () => {
-    await loadScript('https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js', () => !!(window as any).html2canvas)
-    return (window as any).html2canvas(fichaRef.current, { scale: 2, backgroundColor: '#ffffff', useCORS: true }) as Promise<HTMLCanvasElement>
+    if (!fichaRef.current) {
+      throw new Error('Ficha não encontrada')
+    }
+
+    await document.fonts.ready
+
+    return html2canvas(fichaRef.current, {
+      scale: 2,
+      backgroundColor: '#ffffff',
+      useCORS: true,
+    })
   }
   const exportarPNG = async (nome: string) => {
     if (!fichaRef.current) return
@@ -682,8 +683,6 @@ export default function App() {
     setExportando(true)
     try {
       const canvas = await capturar()
-      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js', () => !!(window as any).jspdf)
-      const { jsPDF } = (window as any).jspdf
       const pdf = new jsPDF('p', 'mm', 'a4')
       const pw = 210, ph = 297
       let w = pw
@@ -779,12 +778,7 @@ export default function App() {
           )
         })
       } else {
-        await loadScript(
-          'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
-          () => !!(window as any).jspdf
-        )
-
-        const { jsPDF } = (window as any).jspdf
+        
         const pdf = new jsPDF('p', 'mm', 'a4')
 
         const pw = 210, ph = 297
