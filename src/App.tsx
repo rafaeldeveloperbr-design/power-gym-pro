@@ -655,66 +655,66 @@ export default function App() {
     )
   }
 
-  
-if (!logado) {
-  return (
-    <div className="min-h-screen flex items-center justify-center px-4 py-10">
-      <div className="w-full max-w-sm">
-        <div className="flex justify-center mb-10">
-          <LogoText size="large" variant="dark" />
-        </div>
 
-        <div className={cardCls + ' p-6 space-y-4'}>
-          <div>
-            <h1 className="text-[18px] font-extrabold">
-              Acesso do Treinador
-            </h1>
-            <p className="text-[12px] text-[#888] mt-1">
-              Treino profissional. Resultados reais.
-            </p>
+  if (!logado) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-4 py-10">
+        <div className="w-full max-w-sm">
+          <div className="flex justify-center mb-10">
+            <LogoText size="large" variant="dark" />
           </div>
 
-          <Field label="E-mail">
-            <input
-              className={inputCls}
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="voce@email.com"
-              autoComplete="username"
-            />
-          </Field>
+          <div className={cardCls + ' p-6 space-y-4'}>
+            <div>
+              <h1 className="text-[18px] font-extrabold">
+                Acesso do Treinador
+              </h1>
+              <p className="text-[12px] text-[#888] mt-1">
+                Treino profissional. Resultados reais.
+              </p>
+            </div>
 
-          <Field label="Senha">
-            <input
-              className={inputCls}
-              type="password"
-              value={senha}
-              onChange={(e) => setSenha(e.target.value)}
-              placeholder="••••••••"
-              autoComplete="current-password"
-              onKeyDown={(e) => e.key === 'Enter' && entrar()}
-            />
-          </Field>
+            <Field label="E-mail">
+              <input
+                className={inputCls}
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="voce@email.com"
+                autoComplete="username"
+              />
+            </Field>
 
-          {authErro && (
-            <p className="text-[12px] text-red-400">
-              {authErro}
-            </p>
-          )}
+            <Field label="Senha">
+              <input
+                className={inputCls}
+                type="password"
+                value={senha}
+                onChange={(e) => setSenha(e.target.value)}
+                placeholder="••••••••"
+                autoComplete="current-password"
+                onKeyDown={(e) => e.key === 'Enter' && entrar()}
+              />
+            </Field>
 
-          <button
-            onClick={entrar}
-            disabled={authEnviando}
-            className={btnPri + ' w-full'}
-          >
-            {authEnviando ? 'ENTRANDO...' : 'ENTRAR'}
-          </button>
+            {authErro && (
+              <p className="text-[12px] text-red-400">
+                {authErro}
+              </p>
+            )}
+
+            <button
+              onClick={entrar}
+              disabled={authEnviando}
+              className={btnPri + ' w-full'}
+            >
+              {authEnviando ? 'ENTRANDO...' : 'ENTRAR'}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
-  )
-}
+    )
+  }
 
   /* ---------- AÇÕES: alunos ---------- */
   const salvarAluno = () => {
@@ -1389,7 +1389,9 @@ if (!logado) {
                       onClick={() => setMenuWhats(false)}
                     />
 
-                    <div className="absolute right-0 top-full mt-2 w-52 bg-[#1A1A1A] border border-[#333] rounded-xl shadow-2xl z-50 p-1.5">
+
+                    <div className="absolute left-0 sm:left-auto sm:right-0 top-full mt-2 w-52 max-w-[calc(100vw-2rem)] bg-[#1A1A1A] border border-[#333] rounded-xl shadow-2xl z-50 p-1.5">
+
                       <button
                         className="w-full flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-[#292929] text-left text-sm"
                         onClick={() => enviarWhats(fichaAtual, alunoFicha)}
