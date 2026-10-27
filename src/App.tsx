@@ -941,6 +941,64 @@ export default function App() {
   }
 
 
+  const importarBibliotecaInicial = async () => {
+    if (testandoBiblioteca) return
+
+    if (!window.confirm(
+      'Importar os 100 exercícios e as 7 categorias iniciais para o Supabase?'
+    )) return
+
+    setTestandoBiblioteca(true)
+    setResultadoBiblioteca('Importando biblioteca...')
+
+    try {
+      // Primeiro importar as categorias.
+      const { error: erroCategorias } = await supabase
+        .from('categorias_exercicios')
+        .upsert(
+          CATEGORIAS_INICIAIS.map(nome => ({ nome })),
+          { onConflict: 'nome', ignoreDuplicates: true }
+        )
+
+      if (erroCategorias) throw erroCategorias
+
+      // Depois importar os exercícios.
+      const { error: erroExercicios } = await supabase
+        .from('biblioteca_exercicios')
+        .upsert(
+          BASE.map(exercicio => ({ ...exercicio })),
+          { onConflict: 'id', ignoreDuplicates: true }
+        )
+
+      if (erroExercicios) throw erroExercicios
+
+      // Conferir os totais no banco.
+      const [resultadoEx, resultadoCat] = await Promise.all([
+        supabase
+          .from('biblioteca_exercicios')
+          .select('id', { count: 'exact', head: true }),
+        supabase
+          .from('categorias_exercicios')
+          .select('nome', { count: 'exact', head: true }),
+      ])
+
+      if (resultadoEx.error) throw resultadoEx.error
+      if (resultadoCat.error) throw resultadoCat.error
+
+      setResultadoBiblioteca(
+        `Importação concluída! Exercícios: ${resultadoEx.count ?? 0} | Categorias: ${resultadoCat.count ?? 0}`
+      )
+    } catch (erro) {
+      console.error('Erro na importação:', erro)
+      setResultadoBiblioteca(
+        'Falha na importação. Confira o console antes de tentar novamente.'
+      )
+    } finally {
+      setTestandoBiblioteca(false)
+    }
+  }
+
+
   /* ---------- AÇÕES: exercícios ---------- */
   const abrirModalEx = (ex: Exercicio | null) => {
     setFormEx(
@@ -1562,6 +1620,17 @@ export default function App() {
                       ? 'Consultando...'
                       : 'Testar conexão da biblioteca'}
                   </button>
+
+
+                  <button
+                    type="button"
+                    onClick={() => void importarBibliotecaInicial()}
+                    disabled={testandoBiblioteca}
+                    className={btnSec + ' ml-2'}
+                  >
+                    Importar biblioteca inicial
+                  </button>
+
 
                   {resultadoBiblioteca && (
                     <p className="text-xs text-[#AAA]">
