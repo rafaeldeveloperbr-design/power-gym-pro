@@ -469,6 +469,12 @@ export default function App() {
   const [authErro, setAuthErro] = useState('')
 
 
+  const [alunosRemotos, setAlunosRemotos] = useState<Aluno[]>([])
+  const [consultandoAlunos, setConsultandoAlunos] = useState(false)
+  const [erroConsultaAlunos, setErroConsultaAlunos] = useState('')
+
+
+
   /* ---------- dados ---------- */
 
   const [alunos, setAlunos] = useState<Aluno[]>(() =>
@@ -715,6 +721,31 @@ export default function App() {
       </div>
     )
   }
+
+
+  const consultarAlunosSupabase = async () => {
+    setConsultandoAlunos(true)
+    setErroConsultaAlunos('')
+
+    try {
+      const { data, error } = await supabase
+        .from('alunos')
+        .select('id, nome, objetivo, peso, altura, whatsapp, observacoes')
+        .order('nome', { ascending: true })
+
+      if (error) throw error
+
+      setAlunosRemotos((data ?? []) as Aluno[])
+    } catch (erro) {
+      console.error('Erro ao consultar alunos:', erro)
+      setErroConsultaAlunos(
+        'Não foi possível consultar os alunos no Supabase.'
+      )
+    } finally {
+      setConsultandoAlunos(false)
+    }
+  }
+
 
   /* ---------- AÇÕES: alunos ---------- */
   const salvarAluno = () => {
@@ -1161,6 +1192,42 @@ export default function App() {
         {/* ================= ALUNOS ================= */}
         {view === 'main' && tab === 'alunos' && (
           <div className="space-y-6">
+
+
+            <div className="rounded-xl border border-[#2A2A2A] bg-[#121212] p-4 space-y-3">
+              <div>
+                <p className="text-sm font-bold">
+                  Teste de conexão Supabase
+                </p>
+                <p className="text-xs text-[#888]">
+                  Consulta somente leitura. Os alunos locais não serão alterados.
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => void consultarAlunosSupabase()}
+                disabled={consultandoAlunos}
+                className={btnSec}
+              >
+                {consultandoAlunos
+                  ? 'Consultando...'
+                  : 'Consultar alunos no Supabase'}
+              </button>
+
+              {erroConsultaAlunos && (
+                <p className="text-xs text-red-400">
+                  {erroConsultaAlunos}
+                </p>
+              )}
+
+              {!erroConsultaAlunos && (
+                <p className="text-xs text-[#AAA]">
+                  Alunos encontrados no Supabase: {alunosRemotos.length}
+                </p>
+              )}
+            </div>
+
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               {[
                 ['Alunos', alunos.length],
