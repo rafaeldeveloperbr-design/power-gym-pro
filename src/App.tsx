@@ -14,6 +14,7 @@ import { jsPDF } from 'jspdf'
 
 import { supabase } from './lib/supabase'
 
+
 /* =========================================================
    TIPOS
    ========================================================= */
@@ -472,6 +473,8 @@ export default function App() {
   const [alunosRemotos, setAlunosRemotos] = useState<Aluno[]>([])
   const [consultandoAlunos, setConsultandoAlunos] = useState(false)
   const [erroConsultaAlunos, setErroConsultaAlunos] = useState('')
+  const [testandoBiblioteca, setTestandoBiblioteca] = useState(false)
+  const [resultadoBiblioteca, setResultadoBiblioteca] = useState('')
   const [salvandoAluno, setSalvandoAluno] = useState(false)
   const [erroSalvarAluno, setErroSalvarAluno] = useState('')
 
@@ -905,6 +908,37 @@ export default function App() {
     }
   }
 
+
+  const testarBibliotecaSupabase = async () => {
+    setTestandoBiblioteca(true)
+    setResultadoBiblioteca('')
+
+    try {
+      const [resultadoEx, resultadoCat] = await Promise.all([
+        supabase
+          .from('biblioteca_exercicios')
+          .select('id', { count: 'exact', head: true }),
+
+        supabase
+          .from('categorias_exercicios')
+          .select('nome', { count: 'exact', head: true }),
+      ])
+
+      if (resultadoEx.error) throw resultadoEx.error
+      if (resultadoCat.error) throw resultadoCat.error
+
+      setResultadoBiblioteca(
+        `Supabase conectado! Exercícios: ${resultadoEx.count ?? 0} | Categorias: ${resultadoCat.count ?? 0}`
+      )
+    } catch (erro) {
+      console.error('Erro ao consultar biblioteca:', erro)
+      setResultadoBiblioteca(
+        'Erro ao consultar biblioteca ou categorias no Supabase.'
+      )
+    } finally {
+      setTestandoBiblioteca(false)
+    }
+  }
 
 
   /* ---------- AÇÕES: exercícios ---------- */
@@ -1512,6 +1546,30 @@ export default function App() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
                 <h2 className="text-[20px] font-extrabold">Biblioteca de Exercícios</h2>
+
+                <div className="rounded-xl border border-[#333] bg-[#121212] p-4 space-y-3">
+                  <p className="text-sm font-bold">
+                    Teste da biblioteca Supabase
+                  </p>
+
+                  <button
+                    type="button"
+                    onClick={() => void testarBibliotecaSupabase()}
+                    disabled={testandoBiblioteca}
+                    className={btnSec}
+                  >
+                    {testandoBiblioteca
+                      ? 'Consultando...'
+                      : 'Testar conexão da biblioteca'}
+                  </button>
+
+                  {resultadoBiblioteca && (
+                    <p className="text-xs text-[#AAA]">
+                      {resultadoBiblioteca}
+                    </p>
+                  )}
+                </div>
+
                 <p className="text-[12px] text-[#888] mt-1">{biblioteca.length} exercícios • {categorias.length} categorias</p>
               </div>
               <div className="flex gap-2">
