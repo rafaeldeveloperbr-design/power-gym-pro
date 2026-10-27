@@ -655,50 +655,66 @@ export default function App() {
     )
   }
 
-  if (!logado) {
-    return (
-      <div className="min-h-screen flex items-center justify-center px-4 py-10">
-        <div className="w-full max-w-sm">
-          <div className="flex justify-center mb-10"><LogoText size="large" variant="dark" /></div>
-          <div className={cardCls + ' p-6 space-y-4'}>
-            <div>
-              <h1 className="text-[18px] font-extrabold">
-                Acesso do Treinador
-              </h1>
-              <p className="text-[12px] text-[#888] mt-1">Treino profissional. Resultados reais.</p>
-            </div>
+  
+if (!logado) {
+  return (
+    <div className="min-h-screen flex items-center justify-center px-4 py-10">
+      <div className="w-full max-w-sm">
+        <div className="flex justify-center mb-10">
+          <LogoText size="large" variant="dark" />
+        </div>
 
-            <button
-              onClick={entrar}
-              disabled={authEnviando}
-              className={btnPri + ' w-full'}
-            >
-              {authEnviando ? 'ENTRANDO...' : 'ENTRAR'}
-            </button>
-
-            <Field label="E-mail">
-              <input className={inputCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="voce@email.com" />
-            </Field>
-            <Field label="Senha">
-              <input
-                className={inputCls} type="password" value={senha}
-                onChange={(e) => setSenha(e.target.value)} placeholder="••••••••"
-                onKeyDown={(e) => e.key === 'Enter' && entrar()}
-              />
-            </Field>
-            {authErro && <p className="text-[12px] text-red-400">{authErro}</p>}
-            
-            <button
-              
-              className="w-full text-[12px] text-[#888] hover:text-white transition"
-            >
-              
-            </button>
+        <div className={cardCls + ' p-6 space-y-4'}>
+          <div>
+            <h1 className="text-[18px] font-extrabold">
+              Acesso do Treinador
+            </h1>
+            <p className="text-[12px] text-[#888] mt-1">
+              Treino profissional. Resultados reais.
+            </p>
           </div>
+
+          <Field label="E-mail">
+            <input
+              className={inputCls}
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="voce@email.com"
+              autoComplete="username"
+            />
+          </Field>
+
+          <Field label="Senha">
+            <input
+              className={inputCls}
+              type="password"
+              value={senha}
+              onChange={(e) => setSenha(e.target.value)}
+              placeholder="••••••••"
+              autoComplete="current-password"
+              onKeyDown={(e) => e.key === 'Enter' && entrar()}
+            />
+          </Field>
+
+          {authErro && (
+            <p className="text-[12px] text-red-400">
+              {authErro}
+            </p>
+          )}
+
+          <button
+            onClick={entrar}
+            disabled={authEnviando}
+            className={btnPri + ' w-full'}
+          >
+            {authEnviando ? 'ENTRANDO...' : 'ENTRAR'}
+          </button>
         </div>
       </div>
-    )
-  }
+    </div>
+  )
+}
 
   /* ---------- AÇÕES: alunos ---------- */
   const salvarAluno = () => {
