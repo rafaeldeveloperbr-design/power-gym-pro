@@ -479,9 +479,7 @@ export default function App() {
 
   /* ---------- dados ---------- */
 
-  const [alunos, setAlunos] = useState<Aluno[]>(() =>
-    carregarLocal('pgp_alunos', ALUNOS_INICIAIS)
-  )
+  const [alunos, setAlunos] = useState<Aluno[]>([])
 
   const [fichas, setFichas] = useState<Ficha[]>(() =>
     carregarLocal('pgp_fichas', FICHAS_INICIAIS)
@@ -502,7 +500,6 @@ export default function App() {
 
   useEffect(() => {
     try {
-      localStorage.setItem('pgp_alunos', JSON.stringify(alunos))
       localStorage.setItem('pgp_fichas', JSON.stringify(fichas))
       localStorage.setItem('pgp_templates', JSON.stringify(templates))
       localStorage.setItem('pgp_biblioteca', JSON.stringify(biblioteca))
@@ -653,6 +650,46 @@ export default function App() {
     setSenha('')
   }
 
+
+
+  useEffect(() => {
+    if (!logado) {
+      setAlunos([])
+      return
+    }
+
+    let cancelado = false
+
+    const carregarAlunos = async () => {
+      setConsultandoAlunos(true)
+      setErroConsultaAlunos('')
+
+      const { data, error } = await supabase
+        .from('alunos')
+        .select('id, nome, objetivo, peso, altura, whatsapp, observacoes')
+        .order('nome', { ascending: true })
+
+      if (cancelado) return
+
+      if (error) {
+        console.error('Erro ao carregar alunos:', error)
+        setErroConsultaAlunos('Erro ao carregar alunos.')
+      } else {
+        setAlunos((data ?? []) as Aluno[])
+        setAlunosRemotos((data ?? []) as Aluno[])
+      }
+
+      setConsultandoAlunos(false)
+    }
+
+    void carregarAlunos()
+
+    return () => {
+      cancelado = true
+    }
+  }, [logado])
+
+
   if (authCarregando) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#080808] text-white">
@@ -737,6 +774,7 @@ export default function App() {
 
       if (error) throw error
 
+      setAlunos((data ?? []) as Aluno[])
       setAlunosRemotos((data ?? []) as Aluno[])
     } catch (erro) {
       console.error('Erro ao consultar alunos:', erro)
