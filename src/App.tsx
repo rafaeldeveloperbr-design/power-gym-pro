@@ -6,16 +6,13 @@ import {
   Weight, Ruler, FolderPlus, LogOut, Paperclip, UserPlus, Save,
 } from 'lucide-react'
 
-import { Capacitor } from '@capacitor/core'
-import { Share } from '@capacitor/share'
-import { Filesystem, Directory } from '@capacitor/filesystem'
-import html2canvas from 'html2canvas'
-import { jsPDF } from 'jspdf'
 
 import { supabase } from './lib/supabase'
 import { loadCatalog, saveRemoteTemplate, remoteError } from './lib/catalog'
 import { loadWorkouts, saveWorkout, deleteWorkout, makeDivision, updateDivision, removeDivision } from './lib/workouts'
 import type { WorkoutPlan as Ficha, WorkoutDivision } from './lib/workouts'
+import { createWorkoutFile } from './lib/workout-export'
+import { downloadFile, isMobileWeb, shareWorkoutFile } from './lib/web-sharing'
 
 
 /* =========================================================
@@ -257,7 +254,6 @@ const telefone = (p: string) => {
   if (!d) return ''
   return d.length <= 11 ? '55' + d : d
 }
-const slug = (s: string) => norm(s).replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
 
 const inputCls = 'w-full h-[42px] rounded-[10px] bg-[#0E0E0E] border border-[#222] px-3 text-[13px] text-white placeholder:text-[#555] outline-none focus:border-[#444] transition'
 const textareaCls = 'w-full rounded-[10px] bg-[#0E0E0E] border border-[#222] px-3 py-2.5 text-[13px] text-white placeholder:text-[#555] outline-none focus:border-[#444] resize-none transition'
@@ -456,7 +452,6 @@ export default function App() {
   const [authErro, setAuthErro] = useState('')
 
 
-  const [alunosRemotos, setAlunosRemotos] = useState<Aluno[]>([])
   const [consultandoAlunos, setConsultandoAlunos] = useState(false)
   const [erroConsultaAlunos, setErroConsultaAlunos] = useState('')
   const [catalogLoading, setCatalogLoading] = useState(true)
@@ -569,7 +564,8 @@ export default function App() {
 
   /* ---------- ficha detalhe ---------- */
   const [fichaId, setFichaId] = useState<string | null>(null)
-  const fichaRef = useRef<HTMLDivElement>(null)
+  const exportLock = useRef(false)
+  const [shareNotice, setShareNotice] = useState('')
   const [exportando, setExportando] = useState(false)
   const [menuWhats, setMenuWhats] = useState(false)
 
@@ -699,7 +695,6 @@ export default function App() {
         setErroConsultaAlunos('Erro ao carregar alunos.')
       } else {
         setAlunos((data ?? []) as Aluno[])
-        setAlunosRemotos((data ?? []) as Aluno[])
       }
 
       setConsultandoAlunos(false)
@@ -798,7 +793,6 @@ export default function App() {
       if (error) throw error
 
       setAlunos((data ?? []) as Aluno[])
-      setAlunosRemotos((data ?? []) as Aluno[])
     } catch (erro) {
       console.error('Erro ao consultar alunos:', erro)
       setErroConsultaAlunos(
@@ -1114,49 +1108,12 @@ export default function App() {
     })
   }
 
-  const capturar = async () => {
-    if (!fichaRef.current) {
-      throw new Error('Ficha não encontrada')
-    }
-
-    await document.fonts.ready
-
-    return html2canvas(fichaRef.current, {
-      scale: 2,
-      backgroundColor: '#ffffff',
-      useCORS: true,
-    })
-  }
-  const exportarPNG = async (nome: string) => {
-    if (!fichaRef.current) return
-    setExportando(true)
-    try {
-      const canvas = await capturar()
-      const a = document.createElement('a')
-      a.href = canvas.toDataURL('image/png')
-      a.download = `ficha-${slug(nome)}.png`
-      a.click()
-    } catch (e) {
-      window.alert('Não foi possível gerar a imagem. Verifique sua conexão e tente novamente.')
-    }
-    setExportando(false)
-  }
-  const exportarPDF = async (nome: string) => {
-    if (!fichaRef.current) return
-    setExportando(true)
-    try {
-      const canvas = await capturar()
-      const pdf = new jsPDF('p', 'mm', 'a4')
-      const pw = 210, ph = 297
-      let w = pw
-      let h = (canvas.height * pw) / canvas.width
-      if (h > ph) { h = ph; w = (canvas.width * ph) / canvas.height }
-      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', (pw - w) / 2, 0, w, h)
-      pdf.save(`ficha-${slug(nome)}.pdf`)
-    } catch (e) {
-      window.alert('Não foi possível gerar o PDF. Verifique sua conexão e tente novamente.')
-    }
-    setExportando(false)
+  const exportarArquivo = async (format: 'png' | 'pdf', plan: Ficha, aluno?: Aluno) => {
+    if (exportLock.current) return
+    exportLock.current = true; setExportando(true); setShareNotice('')
+    try { downloadFile(await createWorkoutFile(plan, aluno, format)) }
+    catch (error) { window.alert(remoteError(error)) }
+    finally { exportLock.current = false; setExportando(false) }
   }
 
   const enviarWhats = (f: Ficha, a?: Aluno) => {
@@ -1201,168 +1158,24 @@ export default function App() {
 
 
 
-  const compartilharArquivoWhats = async (
-    formato: 'png' | 'pdf',
-    f: Ficha,
-    aluno?: Aluno
-  ) => {
-    if (!fichaRef.current || exportando) return
-
-    setMenuWhats(false)
-    setExportando(true)
-
-    const appNativo = Capacitor.isNativePlatform()
-
-    const celular = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
-
-    const suportaShare = !appNativo && celular &&
-      typeof navigator.share === 'function' &&
-      typeof navigator.canShare === 'function'
-
-    // No computador, abre uma aba imediatamente
-    // para evitar bloqueio de pop-ups após o processamento.
-    const abaWhats = !appNativo && !suportaShare
-      ? window.open('', '_blank')
-      : null
-
+  const compartilharArquivoWhats = async (format: 'png' | 'pdf', plan: Ficha, aluno?: Aluno) => {
+    if (exportLock.current) return
+    exportLock.current = true; setExportando(true); setMenuWhats(false); setShareNotice('')
+    const mobile = isMobileWeb(navigator)
+    // Reserve the desktop conversation during the original user gesture.
+    const conversation = !mobile ? window.open('about:blank', '_blank') : null
+    if (conversation) conversation.opener = null
     try {
-      const canvas = await capturar()
-      const nome = `ficha-${slug(f.nome)}.${formato}`
-
-      let blob: Blob
-
-      if (formato === 'png') {
-        blob = await new Promise<Blob>((resolve, reject) => {
-          canvas.toBlob(
-            (resultado) => resultado
-              ? resolve(resultado)
-              : reject(new Error('Falha ao gerar PNG')),
-            'image/png'
-          )
-        })
-      } else {
-
-        const pdf = new jsPDF('p', 'mm', 'a4')
-
-        const pw = 210, ph = 297
-        let w = pw
-        let h = (canvas.height * pw) / canvas.width
-
-        if (h > ph) {
-          h = ph
-          w = (canvas.width * ph) / canvas.height
-        }
-
-        pdf.addImage(
-          canvas.toDataURL('image/png'),
-          'PNG',
-          (pw - w) / 2,
-          0,
-          w,
-          h
-        )
-
-        blob = pdf.output('blob')
-      }
-
-
-      if (appNativo) {
-        const base64 = await new Promise<string>((resolve, reject) => {
-          const leitor = new FileReader()
-
-          leitor.onload = () => {
-            const resultado = leitor.result
-
-            if (typeof resultado !== 'string') {
-              reject(new Error('Falha ao converter arquivo'))
-              return
-            }
-
-            resolve(resultado.split(',')[1])
-          }
-
-          leitor.onerror = () => reject(
-            new Error('Falha ao ler arquivo')
-          )
-
-          leitor.readAsDataURL(blob)
-        })
-
-        const salvo = await Filesystem.writeFile({
-          path: nome,
-          data: base64,
-          directory: Directory.Cache,
-        })
-
-        await Share.share({
-          title: f.nome,
-          files: [salvo.uri],
-          dialogTitle: 'Compartilhar ficha de treino',
-        })
-
-        return
-      }
-
-
-      const arquivo = new File(
-        [blob],
-        nome,
-        {
-          type: formato === 'png'
-            ? 'image/png'
-            : 'application/pdf'
-        }
-      )
-
-      if (suportaShare && navigator.canShare({ files: [arquivo] })) {
-        try {
-          await navigator.share({
-            files: [arquivo],
-            title: f.nome,
-          })
-          return
-        } catch (erro) {
-          // Cancelar o compartilhamento não é um erro.
-          if (erro instanceof DOMException && erro.name === 'AbortError') {
-            return
-          }
-        }
-      }
-
-      // Alternativa: baixar o arquivo.
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = nome
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-
-      window.setTimeout(() => URL.revokeObjectURL(url), 60000)
-
-      const tel = aluno ? telefone(aluno.whatsapp) : ''
-      const destino = `https://wa.me/${tel}`
-
-      if (abaWhats && !abaWhats.closed) {
-        abaWhats.location.href = destino
-      } else if (!suportaShare) {
-        window.alert(
-          'Arquivo baixado. Abra a conversa do aluno no WhatsApp e anexe o arquivo manualmente.'
-        )
-      } else {
-        window.alert(
-          'Arquivo baixado. Abra o WhatsApp e anexe o arquivo manualmente.'
-        )
-      }
-    } catch (erro) {
-      abaWhats?.close()
-      console.error('Erro ao preparar arquivo:', erro)
-      window.alert('Não foi possível preparar o arquivo.')
-    } finally {
-      setExportando(false)
-    }
+      const file = await createWorkoutFile(plan, aluno, format)
+      const result = await shareWorkoutFile(file, navigator, mobile)
+      if (result !== 'download') { conversation?.close(); return }
+      downloadFile(file)
+      const destination = `https://wa.me/${aluno ? telefone(aluno.whatsapp) : ''}`
+      if (conversation && !conversation.closed) conversation.location.href = destination
+      setShareNotice('Arquivo baixado. Abra a conversa no WhatsApp e anexe o arquivo manualmente.')
+    } catch (error) { conversation?.close(); window.alert(remoteError(error)) }
+    finally { exportLock.current = false; setExportando(false) }
   }
-
 
   /* ---------- derivados ---------- */
   const alunosFiltrados = alunos.filter((a) => norm(a.nome + ' ' + a.objetivo).includes(norm(qAluno)))
@@ -1418,39 +1231,8 @@ export default function App() {
           <div className="space-y-6">
 
 
-            <div className="rounded-xl border border-[#2A2A2A] bg-[#121212] p-4 space-y-3">
-              <div>
-                <p className="text-sm font-bold">
-                  Teste de conexão Supabase
-                </p>
-                <p className="text-xs text-[#888]">
-                  Consulta somente leitura. Os alunos locais não serão alterados.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => void consultarAlunosSupabase()}
-                disabled={consultandoAlunos}
-                className={btnSec}
-              >
-                {consultandoAlunos
-                  ? 'Consultando...'
-                  : 'Consultar alunos no Supabase'}
-              </button>
-
-              {erroConsultaAlunos && (
-                <p className="text-xs text-red-400">
-                  {erroConsultaAlunos}
-                </p>
-              )}
-
-              {!erroConsultaAlunos && (
-                <p className="text-xs text-[#AAA]">
-                  Alunos encontrados no Supabase: {alunosRemotos.length}
-                </p>
-              )}
-            </div>
+            {consultandoAlunos && <p role="status">Carregando alunos...</p>}
+            {erroConsultaAlunos && <div role="alert" className="text-red-400">{erroConsultaAlunos} <button onClick={() => void consultarAlunosSupabase()} className={btnSec}>Tentar novamente</button></div>}
 
             <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               {[
@@ -1742,8 +1524,8 @@ export default function App() {
             <div className="flex flex-wrap items-center gap-2">
               <button onClick={() => { setView('main'); setTab('alunos') }} className={btnSec}><ChevronLeft size={14} />Voltar</button>
               <div className="flex-1" />
-              <button disabled={exportando} onClick={() => exportarPNG(fichaAtual.nome)} className={btnSec}><ImageIcon size={13} />Imagem</button>
-              <button disabled={exportando} onClick={() => exportarPDF(fichaAtual.nome)} className={btnSec}><FileText size={13} />PDF</button>
+              <button disabled={exportando} onClick={() => exportarArquivo('png', fichaAtual, alunoFicha)} className={btnSec}><ImageIcon size={13} />Imagem</button>
+              <button disabled={exportando} onClick={() => exportarArquivo('pdf', fichaAtual, alunoFicha)} className={btnSec}><FileText size={13} />PDF</button>
 
               <div className="relative">
                 <button
@@ -1769,14 +1551,14 @@ export default function App() {
                     />
 
 
-                    <div className="absolute left-0 sm:left-auto sm:right-0 top-full mt-2 w-52 max-w-[calc(100vw-2rem)] bg-[#1A1A1A] border border-[#333] rounded-xl shadow-2xl z-50 p-1.5">
+                    <div className="fixed left-4 right-4 bottom-4 sm:absolute sm:left-auto sm:bottom-auto sm:right-0 sm:top-full sm:mt-2 sm:w-52 max-h-[70vh] overflow-y-auto bg-[#1A1A1A] border border-[#333] rounded-xl shadow-2xl z-50 p-1.5">
 
                       <button
                         className="w-full flex items-center gap-3 px-3 py-3 rounded-lg hover:bg-[#292929] text-left text-sm"
                         onClick={() => enviarWhats(fichaAtual, alunoFicha)}
                       >
                         <MessageCircle size={16} className="text-green-400" />
-                        Enviar texto
+                        Compartilhar texto
                       </button>
 
                       <button
@@ -1786,7 +1568,7 @@ export default function App() {
                         }
                       >
                         <ImageIcon size={16} className="text-blue-400" />
-                        Enviar imagem
+                        Compartilhar imagem
                       </button>
 
                       <button
@@ -1796,7 +1578,7 @@ export default function App() {
                         }
                       >
                         <FileText size={16} className="text-red-400" />
-                        Enviar PDF
+                        Compartilhar PDF
                       </button>
                     </div>
                   </>
@@ -1805,9 +1587,10 @@ export default function App() {
               <button disabled={workoutBusy} onClick={() => editarFicha(fichaAtual)} className={btnSec}><Pencil size={13} />Editar plano</button>
               <button disabled={workoutBusy} onClick={() => excluirFicha(fichaAtual)} className={btnSec + ' text-red-400'}><Trash2 size={13} /></button>
             </div>
+            {shareNotice && <div role="status" className="text-[12px] text-[#aaa]">{shareNotice} <a className="underline" href={`https://wa.me/${alunoFicha ? telefone(alunoFicha.whatsapp) : ''}`} target="_blank" rel="noreferrer">Abrir WhatsApp</a></div>}
             {exportando && <p className="text-[11px] text-[#888]">Gerando arquivo...</p>}
 
-            <div ref={fichaRef} id="ficha-para-exportar" className="bg-white text-black rounded-2xl overflow-hidden">
+            <div className="bg-white text-black rounded-2xl overflow-hidden">
               <div className="bg-black px-5 py-5 flex items-center justify-between">
                 <LogoText size="default" variant="dark" />
                 <p className="text-[11px] text-white/70 font-medium">{fichaAtual.data}</p>

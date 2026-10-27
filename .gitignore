@@ -1,4 +1,6 @@
 node_modules/
+# Generated local remnants of the retired native wrapper (may be IDE-locked).
+/android/
 dist/
 build/
 .env
