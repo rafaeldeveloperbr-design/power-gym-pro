@@ -472,6 +472,8 @@ export default function App() {
   const [alunosRemotos, setAlunosRemotos] = useState<Aluno[]>([])
   const [consultandoAlunos, setConsultandoAlunos] = useState(false)
   const [erroConsultaAlunos, setErroConsultaAlunos] = useState('')
+  const [salvandoAluno, setSalvandoAluno] = useState(false)
+  const [erroSalvarAluno, setErroSalvarAluno] = useState('')
 
 
 
@@ -748,12 +750,41 @@ export default function App() {
 
 
   /* ---------- AÇÕES: alunos ---------- */
-  const salvarAluno = () => {
-    if (!formAluno.nome.trim()) return
-    setAlunos([...alunos, { id: 'a' + Date.now(), ...formAluno, nome: formAluno.nome.trim() }])
-    setFormAluno(FORM_ALUNO)
-    setModalAluno(false)
+
+  const salvarAluno = async () => {
+    if (!formAluno.nome.trim() || salvandoAluno) return
+
+    setSalvandoAluno(true)
+    setErroSalvarAluno('')
+
+    const novoAluno: Aluno = {
+      ...formAluno,
+      id: crypto.randomUUID(),
+      nome: formAluno.nome.trim(),
+    }
+
+    try {
+      const { error } = await supabase
+        .from('alunos')
+        .insert(novoAluno)
+
+      if (error) throw error
+
+      setFormAluno(FORM_ALUNO)
+      setModalAluno(false)
+
+      // Atualiza apenas a consulta remota.
+      await consultarAlunosSupabase()
+    } catch (erro) {
+      console.error('Erro ao cadastrar aluno:', erro)
+      setErroSalvarAluno(
+        'Não foi possível cadastrar o aluno no Supabase.'
+      )
+    } finally {
+      setSalvandoAluno(false)
+    }
   }
+
 
 
   const excluirAluno = (aluno: Aluno) => {
@@ -1635,7 +1666,21 @@ export default function App() {
             <Field label="Observações">
               <textarea className={textareaCls} rows={3} value={formAluno.observacoes} onChange={(e) => setFormAluno({ ...formAluno, observacoes: e.target.value })} placeholder="Lesões, restrições, preferências..." />
             </Field>
-            <button onClick={salvarAluno} disabled={!formAluno.nome.trim()} className={btnPri + ' w-full'}>SALVAR ALUNO</button>
+
+            {erroSalvarAluno && (
+              <p className="text-[12px] text-red-400">
+                {erroSalvarAluno}
+              </p>
+            )}
+
+            <button
+              onClick={() => void salvarAluno()}
+              disabled={!formAluno.nome.trim() || salvandoAluno}
+              className={btnPri + ' w-full'}
+            >
+              {salvandoAluno ? 'SALVANDO...' : 'SALVAR ALUNO'}
+            </button>
+
           </div>
         </Modal>
       )}
