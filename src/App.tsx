@@ -522,6 +522,7 @@ export default function App() {
 
   /* ---------- modais ---------- */
   const [modalAluno, setModalAluno] = useState(false)
+  const [alunoEditando, setAlunoEditando] = useState<string | null>(null)
   const [formAluno, setFormAluno] = useState(FORM_ALUNO)
   const [modalEx, setModalEx] = useState<{ editing: Exercicio | null } | null>(null)
   const [formEx, setFormEx] = useState(FORM_EX)
@@ -787,7 +788,39 @@ export default function App() {
   }
 
 
+
+
   /* ---------- AÇÕES: alunos ---------- */
+
+
+  const abrirNovoAluno = () => {
+    setAlunoEditando(null)
+    setFormAluno({ ...FORM_ALUNO })
+    setErroSalvarAluno('')
+    setModalAluno(true)
+  }
+
+  const editarAluno = (aluno: Aluno) => {
+    setAlunoEditando(aluno.id)
+    setFormAluno({
+      nome: aluno.nome,
+      objetivo: aluno.objetivo,
+      peso: aluno.peso,
+      altura: aluno.altura,
+      whatsapp: aluno.whatsapp,
+      observacoes: aluno.observacoes,
+    })
+    setErroSalvarAluno('')
+    setModalAluno(true)
+  }
+
+  const fecharModalAluno = () => {
+    if (salvandoAluno) return
+    setModalAluno(false)
+    setAlunoEditando(null)
+  }
+
+
 
   const salvarAluno = async () => {
     if (!formAluno.nome.trim() || salvandoAluno) return
@@ -795,33 +828,51 @@ export default function App() {
     setSalvandoAluno(true)
     setErroSalvarAluno('')
 
-    const novoAluno: Aluno = {
-      ...formAluno,
-      id: crypto.randomUUID(),
+    const dados = {
       nome: formAluno.nome.trim(),
+      objetivo: formAluno.objetivo,
+      peso: formAluno.peso,
+      altura: formAluno.altura,
+      whatsapp: formAluno.whatsapp,
+      observacoes: formAluno.observacoes,
     }
 
     try {
-      const { error } = await supabase
-        .from('alunos')
-        .insert(novoAluno)
+      const resultado = alunoEditando
+        ? await supabase
+          .from('alunos')
+          .update(dados)
+          .eq('id', alunoEditando)
+          .select('id')
+        : await supabase
+          .from('alunos')
+          .insert({
+            id: crypto.randomUUID(),
+            ...dados,
+          })
+          .select('id')
 
-      if (error) throw error
+      if (resultado.error) throw resultado.error
 
-      setFormAluno(FORM_ALUNO)
-      setModalAluno(false)
+      if (!resultado.data?.length) {
+        throw new Error('O Supabase não confirmou o salvamento.')
+      }
 
-      // Atualiza apenas a consulta remota.
       await consultarAlunosSupabase()
+
+      setFormAluno({ ...FORM_ALUNO })
+      setAlunoEditando(null)
+      setModalAluno(false)
     } catch (erro) {
-      console.error('Erro ao cadastrar aluno:', erro)
+      console.error('Erro ao salvar aluno:', erro)
       setErroSalvarAluno(
-        'Não foi possível cadastrar o aluno no Supabase.'
+        'Não foi possível salvar os dados do aluno.'
       )
     } finally {
       setSalvandoAluno(false)
     }
   }
+
 
 
 
@@ -1322,7 +1373,7 @@ export default function App() {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <h2 className="text-[20px] font-extrabold">Meus Alunos</h2>
               <div className="flex gap-2">
-                <button onClick={() => setModalAluno(true)} className={btnSec + ' h-11 flex-1 sm:flex-none'}><UserPlus size={14} />Novo Aluno</button>
+                <button onClick={abrirNovoAluno} className={btnSec + ' h-11 flex-1 sm:flex-none'}><UserPlus size={14} />Novo Aluno</button>
                 <button onClick={() => abrirCriarFicha()} className={btnPri + ' flex-1 sm:flex-none'}><Plus size={15} />CRIAR FICHA</button>
               </div>
             </div>
@@ -1338,7 +1389,17 @@ export default function App() {
                       <div className="w-12 h-12 rounded-full bg-white text-black font-black text-[14px] flex items-center justify-center shrink-0">{iniciais(a.nome)}</div>
                       <div className="min-w-0">
                         <p className="text-[15px] font-extrabold truncate">{a.nome}</p>
+
                         <p className="text-[10px] uppercase tracking-[0.12em] text-[#888] font-semibold">{a.objetivo}</p>
+
+                        <button
+                          type="button"
+                          onClick={() => editarAluno(a)}
+                          title={`Editar ${a.nome}`}
+                          className="ml-auto shrink-0 w-9 h-9 rounded-lg bg-[#1A1A1A] border border-[#333] text-[#CCC] hover:text-white flex items-center justify-center"
+                        >
+                          <Pencil size={15} />
+                        </button>
 
                         <button
                           type="button"
@@ -1688,7 +1749,10 @@ export default function App() {
 
       {/* ================= MODAL NOVO ALUNO ================= */}
       {modalAluno && (
-        <Modal title="Novo Aluno" onClose={() => setModalAluno(false)}>
+        <Modal
+          title={alunoEditando ? 'Editar Aluno' : 'Novo Aluno'}
+          onClose={fecharModalAluno}
+        >
           <div className="space-y-4">
             <Field label="Nome *">
               <input className={inputCls} value={formAluno.nome} onChange={(e) => setFormAluno({ ...formAluno, nome: e.target.value })} placeholder="Nome completo" />
@@ -1724,7 +1788,11 @@ export default function App() {
               disabled={!formAluno.nome.trim() || salvandoAluno}
               className={btnPri + ' w-full'}
             >
-              {salvandoAluno ? 'SALVANDO...' : 'SALVAR ALUNO'}
+              {salvandoAluno
+                ? 'SALVANDO...'
+                : alunoEditando
+                  ? 'SALVAR ALTERAÇÕES'
+                  : 'SALVAR ALUNO'}
             </button>
 
           </div>
