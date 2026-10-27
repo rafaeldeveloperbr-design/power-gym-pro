@@ -782,6 +782,30 @@ export default function App() {
     setNovaCat('')
   }
 
+
+  const excluirCategoria = (categoria: Grupo) => {
+    const emUso = biblioteca.some(
+      e => e.grupo === categoria
+    )
+
+    if (emUso) {
+      window.alert(
+        `A categoria "${categoria}" possui exercícios associados. ` +
+        'Mova esses exercícios para outra categoria antes de excluir.'
+      )
+      return
+    }
+
+    if (!window.confirm(`Excluir a categoria "${categoria}"?`)) {
+      return
+    }
+
+    setCategorias(prev =>
+      prev.filter(c => c !== categoria)
+    )
+  }
+
+
   /* ---------- AÇÕES: templates ---------- */
   const abrirCriarTemplate = (t?: Template) => {
     setTplId(t ? t.id : null)
@@ -1626,9 +1650,28 @@ export default function App() {
             <div>
               <p className={labelCls}>Categorias atuais</p>
               <div className="flex flex-wrap gap-1.5">
+
                 {categorias.map((c) => (
-                  <span key={c} className="px-2.5 py-1 rounded-lg bg-[#1A1A1A] border border-[#222] text-[11px] font-semibold">{c}</span>
+                  <div
+                    key={c}
+                    className="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg bg-[#1A1A1A] border border-[#222]"
+                  >
+                    <span className="text-[11px] font-semibold">
+                      {c}
+                    </span>
+
+                    <button
+                      type="button"
+                      onClick={() => excluirCategoria(c)}
+                      title={`Excluir categoria ${c}`}
+                      aria-label={`Excluir categoria ${c}`}
+                      className="text-red-400 hover:text-red-300"
+                    >
+                      <Trash2 size={12} />
+                    </button>
+                  </div>
                 ))}
+
               </div>
             </div>
             <button onClick={criarCategoria} disabled={!novaCat.trim()} className={btnPri + ' w-full'}>CRIAR CATEGORIA</button>
