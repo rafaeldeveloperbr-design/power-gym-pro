@@ -1385,32 +1385,38 @@ export default function App() {
                 const fs = fichas.filter((f) => f.alunoId === a.id)
                 return (
                   <div key={a.id} className={cardCls + ' p-5 flex flex-col'}>
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 rounded-full bg-white text-black font-black text-[14px] flex items-center justify-center shrink-0">{iniciais(a.nome)}</div>
-                      <div className="min-w-0">
+                    <div className="flex items-start gap-3">
+                      <div className="w-12 h-12 rounded-full bg-white text-black font-black text-[14px] flex items-center justify-center shrink-0">
+                        {iniciais(a.nome)}
+                      </div>
+
+                      <div className="min-w-0 flex-1">
                         <p className="text-[15px] font-extrabold truncate">{a.nome}</p>
+                        <p className="text-[10px] uppercase tracking-[0.12em] text-[#888] font-semibold">
+                          {a.objetivo}
+                        </p>
+                      </div>
 
-                        <p className="text-[10px] uppercase tracking-[0.12em] text-[#888] font-semibold">{a.objetivo}</p>
-
+                      <div className="flex items-center gap-2 shrink-0">
                         <button
                           type="button"
                           onClick={() => editarAluno(a)}
                           title={`Editar ${a.nome}`}
-                          className="ml-auto shrink-0 w-9 h-9 rounded-lg bg-[#1A1A1A] border border-[#333] text-[#CCC] hover:text-white flex items-center justify-center"
+                          aria-label={`Editar aluno ${a.nome}`}
+                          className="w-9 h-9 rounded-lg bg-[#1A1A1A] border border-[#333] text-[#CCC] hover:text-white hover:border-[#555] flex items-center justify-center transition"
                         >
                           <Pencil size={15} />
                         </button>
 
                         <button
                           type="button"
-                          onClick={() => excluirAluno(a)}
+                          onClick={() => void excluirAluno(a)}
                           title={`Excluir ${a.nome}`}
                           aria-label={`Excluir aluno ${a.nome}`}
-                          className="ml-auto shrink-0 w-9 h-9 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 flex items-center justify-center"
+                          className="w-9 h-9 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 hover:border-red-500/40 flex items-center justify-center transition"
                         >
                           <Trash2 size={15} />
                         </button>
-
                       </div>
                     </div>
                     <div className="flex items-center gap-4 mt-4 text-[12px] text-[#bbb]">
