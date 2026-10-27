@@ -17,9 +17,9 @@ the library changes. Deleting a template uses the existing cascading foreign
 key. `pgp_delete_category` checks the live exercise table under a write-blocking
 table lock before deletion. Neither function uses service-role credentials.
 
-Only fichas continue to use localStorage. Old local library/category/template
-keys are ignored and are never imported. RAW/BASE and initial template
-definitions remain available for the existing initial local fichas.
+All workout plans now load from Supabase as well. Old local workout,
+library/category/template keys are ignored and are never imported. RAW/BASE
+and initial template definitions remain in the source.
 
 Validation:
 
@@ -44,3 +44,43 @@ three domains, template duplication and ordering, and reload persistence on
 the actual project. The isolated tests cannot verify deployed RLS policies,
 production grants, or connectivity. Simultaneous edits use the last successful
 save; this change does not add version conflict detection.
+
+Workout plans and divisions
+--------------------------
+
+Apply `migrations/202610270002_workout_rpc.sql` manually before saving workout
+plans. It only adds `pgp_save_workout`; it does not import records or change
+tables, foreign keys, constraints or RLS. The function requires an active
+authenticated employee and runs with the caller's permissions.
+
+The existing `UNIQUE(aluno_id)` enforces one plan per student. Updates reject
+changes to the student and reject division IDs belonging to other plans.
+Plan and retained division IDs are preserved; exercise snapshot rows are
+replaced atomically. All replacement children are inserted before old
+children are removed. Any validation, constraint, permission or write failure
+rolls back the complete operation. Parent deletion uses the existing cascade.
+
+Division order follows the editor's tab order; exercises follow their editor
+order. Codes are normalized to uppercase and may continue beyond Z to AA,
+AB, etc. Empty divisions are supported while building a plan. At least one
+division and a name for each division are required.
+
+Templates replace only the selected division after confirmation if it already
+contains exercises. The student-card attachment action opens the editor and
+adds a new division to an existing plan for review before saving. It never
+overwrites other divisions. PDF/PNG generation remains unchanged; the detail
+table now includes division headings.
+
+Run all targeted tests with the external PGlite setup above:
+
+```powershell
+node --test tests/*.test.mjs
+npm run build
+git diff --check
+```
+
+After manual migration, verify actual-project login, creation, reload,
+division switching, selected-division template application, update and deletion.
+The SQL tests use the provided schemas and RLS policies in an isolated database;
+they cannot verify the deployed project's configuration. Concurrent edits to
+the same plan serialize at the database and use the last successful save.

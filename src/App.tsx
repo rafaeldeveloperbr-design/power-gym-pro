@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, Fragment } from 'react'
 import type { ReactNode } from 'react'
 import {
   Dumbbell, Layers, Users, Plus, Minus, Search, X, Play, Pencil, Trash2, Copy, ClipboardCopy,
@@ -14,6 +14,8 @@ import { jsPDF } from 'jspdf'
 
 import { supabase } from './lib/supabase'
 import { loadCatalog, saveRemoteTemplate, remoteError } from './lib/catalog'
+import { loadWorkouts, saveWorkout, deleteWorkout, makeDivision, updateDivision, removeDivision } from './lib/workouts'
+import type { WorkoutPlan as Ficha, WorkoutDivision } from './lib/workouts'
 
 
 /* =========================================================
@@ -29,7 +31,6 @@ interface Exercicio {
   video_url: string | null; gif_url: string | null; equipamento: string
 }
 interface ExercicioFicha extends Exercicio { series: string; reps: string; carga: string; descanso: string }
-interface Ficha { id: string; alunoId: string; nome: string; data: string; exercicios: ExercicioFicha[]; templateId?: string }
 interface Template { id: string; nome: string; objetivo: Objetivo; nivel: Nivel; descricao: string; exercicios: ExercicioFicha[]; dataCriacao: string }
 
 const OBJETIVOS: Objetivo[] = ['HIPERTROFIA', 'EMAGRECIMENTO', 'FORÇA', 'DEFINIÇÃO']
@@ -246,12 +247,6 @@ const ALUNOS_INICIAIS: Aluno[] = [
 
 const clone = (l: ExercicioFicha[]) => l.map((e) => ({ ...e }))
 
-const FICHAS_INICIAIS: Ficha[] = [
-  { id: 'f1', alunoId: 'a1', nome: 'Hipertrofia ABC - Treino A', data: hoje(), exercicios: clone(TEMPLATES_INICIAIS[0].exercicios), templateId: 't1' },
-  { id: 'f2', alunoId: 'a2', nome: 'Full Body Emagrecimento', data: hoje(), exercicios: clone(TEMPLATES_INICIAIS[2].exercicios), templateId: 't3' },
-  { id: 'f3', alunoId: 'a3', nome: 'Força 5x5 - Fase 1', data: hoje(), exercicios: clone(TEMPLATES_INICIAIS[3].exercicios), templateId: 't4' },
-]
-
 /* =========================================================
    HELPERS E ESTILOS
    ========================================================= */
@@ -450,16 +445,6 @@ const FORM_ALUNO = { nome: '', objetivo: 'HIPERTROFIA' as Objetivo, whatsapp: ''
 const FORM_EX = { nome: '', grupo: '', equipamento: '', foco: '', instrucoes: '', video_url: '', gif_url: '' }
 
 
-const carregarLocal = <T,>(chave: string, inicial: T): T => {
-  try {
-    const salvo = localStorage.getItem(chave)
-    return salvo ? JSON.parse(salvo) as T : inicial
-  } catch {
-    return inicial
-  }
-}
-
-
 export default function App() {
 
   /* ---------- auth ---------- */
@@ -490,9 +475,27 @@ export default function App() {
 
   const [alunos, setAlunos] = useState<Aluno[]>([])
 
-  const [fichas, setFichas] = useState<Ficha[]>(() =>
-    carregarLocal('pgp_fichas', FICHAS_INICIAIS)
-  )
+  const [fichas, setFichas] = useState<Ficha[]>([])
+  const [workoutLoading, setWorkoutLoading] = useState(true)
+  const [workoutReady, setWorkoutReady] = useState(false)
+  const [workoutError, setWorkoutError] = useState('')
+  const [workoutRetry, setWorkoutRetry] = useState(0)
+  const [workoutBusy, setWorkoutBusy] = useState(false)
+  const workoutLock = useRef(false)
+  const workoutSession = useRef(0)
+
+  useEffect(() => {
+    const session = ++workoutSession.current
+    let cancelled = false
+    setFichas([]); setWorkoutReady(false); setWorkoutError(''); setWorkoutLoading(logado)
+    if (!logado) { setView('main'); setFDivisoes([]); return }
+    loadWorkouts().then(plans => {
+      if (cancelled || session !== workoutSession.current) return
+      setFichas(plans); setWorkoutReady(true)
+    }).catch(error => { if (!cancelled) setWorkoutError(remoteError(error)) })
+      .finally(() => { if (!cancelled) setWorkoutLoading(false) })
+    return () => { cancelled = true; ++workoutSession.current }
+  }, [logado, workoutRetry])
 
   const [templates, setTemplates] = useState<Template[]>([])
   const [biblioteca, setBiblioteca] = useState<Exercicio[]>([])
@@ -522,15 +525,6 @@ export default function App() {
     catch (error) { if (session === catalogSession.current) window.alert(remoteError(error)) }
     finally { catalogLock.current = false; setCatalogBusy(false) }
   }
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('pgp_fichas', JSON.stringify(fichas))
-    } catch (erro) {
-      console.error('Erro ao salvar dados locais:', erro)
-    }
-  }, [fichas])
-
 
   /* ---------- navegação ---------- */
   const [tab, setTab] = useState<Tab>('alunos')
@@ -565,7 +559,13 @@ export default function App() {
   const [fAluno, setFAluno] = useState('')
   const [fNome, setFNome] = useState('')
   const [fTplId, setFTplId] = useState('')
-  const [fExs, setFExs] = useState<ExercicioFicha[]>([])
+  const [fEditId, setFEditId] = useState<string | null>(null)
+  const [fData, setFData] = useState('')
+  const [fDivisoes, setFDivisoes] = useState<WorkoutDivision[]>([])
+  const [fDivisaoId, setFDivisaoId] = useState('')
+  const fDivisao = fDivisoes.find(d => d.id === fDivisaoId)
+  const fExs = fDivisao?.exercicios ?? []
+  const setFExs = (exercicios: ExercicioFicha[]) => setFDivisoes(prev => updateDivision(prev, fDivisaoId, { exercicios }))
 
   /* ---------- ficha detalhe ---------- */
   const [fichaId, setFichaId] = useState<string | null>(null)
@@ -1028,41 +1028,92 @@ export default function App() {
     })
   }
 
+  const editarFicha = (plan: Ficha) => {
+    setFEditId(plan.id); setFAluno(plan.alunoId); setFNome(plan.nome); setFData(plan.data)
+    setFTplId(plan.templateId || '')
+    setFDivisoes(plan.divisoes.map(d => ({ ...d, exercicios: clone(d.exercicios) })))
+    setFDivisaoId(plan.divisoes[0]?.id || ''); setView('criarFicha')
+  }
   const abrirCriarFicha = (alunoId?: string, t?: Template) => {
-    setFAluno(alunoId ?? '')
-    setFNome(t ? t.nome : '')
-    setFTplId(t ? t.id : '')
-    setFExs(t ? clone(t.exercicios) : [])
-    setView('criarFicha')
+    if (!workoutReady || workoutBusy) return
+    const existing = fichas.find(f => f.alunoId === alunoId)
+    if (existing) {
+      editarFicha(existing)
+      if (t) {
+        const division = { ...makeDivision(existing.divisoes), exercicios: clone(t.exercicios) }
+        setFDivisoes([...existing.divisoes.map(d => ({ ...d, exercicios: clone(d.exercicios) })), division]); setFDivisaoId(division.id)
+      }
+      return
+    }
+    const division = { ...makeDivision([]), exercicios: t ? clone(t.exercicios) : [] }
+    setFEditId(null); setFAluno(alunoId || ''); setFNome(t?.nome || ''); setFData(hoje())
+    setFTplId(t?.id || ''); setFDivisoes([division]); setFDivisaoId(division.id); setView('criarFicha')
+  }
+  const selecionarAlunoFicha = (id: string) => {
+    const existing = fichas.find(f => f.alunoId === id)
+    if (existing) {
+      if (window.confirm('Este aluno possui um plano. Abrir o plano existente? As alterações deste rascunho serão descartadas.')) editarFicha(existing)
+    } else setFAluno(id)
+  }
+  const adicionarDivisao = () => {
+    const division = makeDivision(fDivisoes)
+    setFDivisoes(prev => [...prev, division]); setFDivisaoId(division.id)
+  }
+  const renomearDivisao = () => {
+    if (!fDivisao) return
+    const codigo = window.prompt('Código da divisão (A, B, C...)', fDivisao.codigo)
+    if (codigo === null) return
+    const nome = window.prompt('Nome da divisão', fDivisao.nome)
+    if (nome === null || !nome.trim()) return
+    try { setFDivisoes(updateDivision(fDivisoes, fDivisao.id, { codigo, nome: nome.trim() })) }
+    catch (error) { window.alert(remoteError(error)) }
+  }
+  const removerDivisaoAtual = () => {
+    if (!fDivisao || fDivisoes.length <= 1 || !window.confirm(`Remover a divisão ${fDivisao.codigo} e seus exercícios?`)) return
+    const remaining = removeDivision(fDivisoes, fDivisao.id)
+    setFDivisoes(remaining); setFDivisaoId(remaining[0].id)
   }
   const carregarTemplate = (id: string) => {
-    setFTplId(id)
-    const t = templates.find((x) => x.id === id)
-    if (!t) return
+    const t = templates.find(x => x.id === id)
+    if (!t || !fDivisao) return
+    if (fExs.length && !window.confirm(`Substituir apenas os exercícios da divisão ${fDivisao.codigo} pelo template?`)) return
     setFExs(clone(t.exercicios))
     if (!fNome.trim()) setFNome(t.nome)
   }
-  const salvarFicha = () => {
-    if (!fAluno || !fNome.trim() || fExs.length === 0) return
-    const nova: Ficha = { id: 'f' + Date.now(), alunoId: fAluno, nome: fNome.trim(), data: hoje(), exercicios: fExs, templateId: fTplId || undefined }
-    setFichas([...fichas, nova])
-    setFichaId(nova.id); setView('ficha')
+  const workoutWrite = async (operation: () => Promise<Ficha | void>) => {
+    if (workoutLock.current || !workoutReady) return
+    const session = workoutSession.current
+    workoutLock.current = true; setWorkoutBusy(true); setWorkoutError('')
+    try {
+      const saved = await operation()
+      if (session !== workoutSession.current) return
+      if (saved) {
+        setFichas(prev => [...prev.filter(f => f.id !== saved.id), saved])
+        setFichaId(saved.id); setView('ficha')
+      }
+    } catch (error) { if (session === workoutSession.current) window.alert(remoteError(error)) }
+    finally { workoutLock.current = false; setWorkoutBusy(false) }
+  }
+  const salvarFicha = async () => {
+    const plan: Ficha = { id: fEditId || crypto.randomUUID(), alunoId: fAluno, nome: fNome.trim(), data: fData || hoje(), templateId: fTplId || undefined, divisoes: fDivisoes.map(d => ({ ...d, exercicios: clone(d.exercicios) })) }
+    await workoutWrite(() => saveWorkout(plan, !!fEditId))
   }
   const confirmarAnexo = () => {
-    if (!anexar || !anexar.alunoId || !anexar.templateId) return
-    const t = templates.find((x) => x.id === anexar.templateId)
+    if (!anexar?.alunoId || !anexar.templateId) return
+    const t = templates.find(x => x.id === anexar.templateId)
     if (!t) return
-    const nova: Ficha = { id: 'f' + Date.now(), alunoId: anexar.alunoId, nome: t.nome, data: hoje(), exercicios: clone(t.exercicios), templateId: t.id }
-    setFichas([...fichas, nova])
-    setAnexar(null); setFichaId(nova.id); setView('ficha')
+    abrirCriarFicha(anexar.alunoId, t); setAnexar(null)
   }
-  const excluirFicha = (f: Ficha) => {
-    if (!window.confirm(`Excluir a ficha "${f.nome}"?`)) return
-    setFichas(fichas.filter((x) => x.id !== f.id))
-    setView('main'); setTab('alunos')
+  const excluirFicha = async (f: Ficha) => {
+    if (!window.confirm(`Excluir o plano "${f.nome}" e todas as suas divisões?`)) return
+    const session = workoutSession.current
+    await workoutWrite(async () => {
+      await deleteWorkout(f.id)
+      if (session !== workoutSession.current) return
+      setFichas(prev => prev.filter(x => x.id !== f.id)); setView('main'); setTab('alunos')
+    })
   }
 
-  /* ---------- AÇÕES: exportação ---------- */
   const capturar = async () => {
     if (!fichaRef.current) {
       throw new Error('Ficha não encontrada')
@@ -1109,7 +1160,7 @@ export default function App() {
   }
 
   const enviarWhats = (f: Ficha, a?: Aluno) => {
-    const exercicios = f.exercicios.map((e, i) => {
+    const exercicios = f.divisoes.flatMap(d => [`*${d.codigo} - ${d.nome}*`, ...d.exercicios.map((e, i) => {
       const detalhes = [
         `• Séries: ${e.series}`,
         `• Repetições: ${e.reps}`,
@@ -1118,7 +1169,7 @@ export default function App() {
       ].filter(Boolean).join('\n')
 
       return `*${String(i + 1).padStart(2, '0')}. ${e.nome}*\n${detalhes}`
-    })
+    })])
 
     const msg = [
       '💪 *POWER GYM PRO*',
@@ -1356,6 +1407,9 @@ export default function App() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-6 pb-16">
+        {workoutLoading && <p role="status">Carregando planos de treino...</p>}
+        {workoutError && <div role="alert" className="mb-4 text-red-400">{workoutError} <button className={btnSec} onClick={() => setWorkoutRetry(n => n + 1)}>Tentar novamente</button></div>}
+        {workoutBusy && <p role="status">Salvando plano...</p>}
         {catalogLoading && <p role="status">Carregando biblioteca, categorias e templates...</p>}
         {catalogError && <div role="alert" className="mb-4 text-red-400">{catalogError} <button className={btnSec} onClick={() => setCatalogRetry(n => n + 1)}>Tentar novamente</button></div>}
         {catalogBusy && <p role="status">Salvando alterações...</p>}
@@ -1416,7 +1470,7 @@ export default function App() {
               <h2 className="text-[20px] font-extrabold">Meus Alunos</h2>
               <div className="flex gap-2">
                 <button onClick={abrirNovoAluno} className={btnSec + ' h-11 flex-1 sm:flex-none'}><UserPlus size={14} />Novo Aluno</button>
-                <button onClick={() => abrirCriarFicha()} className={btnPri + ' flex-1 sm:flex-none'}><Plus size={15} />CRIAR FICHA</button>
+                <button disabled={!workoutReady || workoutBusy} onClick={() => abrirCriarFicha()} className={btnPri + ' flex-1 sm:flex-none'}><Plus size={15} />CRIAR PLANO</button>
               </div>
             </div>
 
@@ -1468,7 +1522,7 @@ export default function App() {
                     {a.observacoes && <p className="text-[12px] italic text-[#888] mt-3">{a.observacoes}</p>}
 
                     <div className="mt-4 flex-1">
-                      <p className={labelCls}>Fichas ({fs.length})</p>
+                      <p className={labelCls}>Plano de treino</p>
                       {fs.length === 0 ? (
                         <div className="border border-dashed border-[#2A2A2A] rounded-xl py-4 text-center text-[12px] text-[#666]">Nenhuma ficha criada</div>
                       ) : (
@@ -1482,7 +1536,8 @@ export default function App() {
                               <FileText size={14} className="text-[#777] shrink-0" />
                               <span className="flex-1 min-w-0">
                                 <span className="block text-[12px] font-semibold truncate">{f.nome}</span>
-                                <span className="block text-[10px] text-[#777]">{f.data} • {f.exercicios.length} exercícios</span>
+                                <span className="block text-[10px] text-[#777]">{f.data} • {f.divisoes.reduce((n, d) => n + d.exercicios.length, 0)} exercícios</span>
+                                {f.divisoes.map(d => <span key={d.id} className="block text-[11px] text-[#aaa]">{d.codigo} - {d.nome}: {d.exercicios.length} exercícios</span>)}
                               </span>
                               <ChevronRight size={14} className="text-[#555]" />
                             </button>
@@ -1493,7 +1548,7 @@ export default function App() {
 
                     <div className="grid grid-cols-3 gap-2 mt-4">
                       <a href={`https://wa.me/${telefone(a.whatsapp)}`} target="_blank" rel="noreferrer" className={btnSec}><MessageCircle size={13} />WhatsApp</a>
-                      <button onClick={() => abrirCriarFicha(a.id)} className={btnSec}><Plus size={13} />Nova Ficha</button>
+                      <button disabled={!workoutReady || workoutBusy} onClick={() => abrirCriarFicha(a.id)} className={btnSec}><Pencil size={13} />{fs.length ? 'Editar Plano' : 'Novo Plano'}</button>
                       <button onClick={() => setAnexar({ templateId: templates[0]?.id ?? '', alunoId: a.id })} className={btnSec}><Layers size={13} />Template</button>
                     </div>
                   </div>
@@ -1533,7 +1588,7 @@ export default function App() {
                   <p className={labelCls + ' mt-3 mb-0'}>{t.exercicios.length} exercícios</p>
                   <button onClick={() => setAnexar({ templateId: t.id, alunoId: alunos[0]?.id ?? '' })} className={btnPri + ' w-full mt-3'}><Paperclip size={14} />Anexar ao Aluno</button>
                   <div className="grid grid-cols-4 gap-2 mt-2">
-                    <button onClick={() => abrirCriarFicha(undefined, t)} className={btnSec + ' px-0'} title="Usar em nova ficha"><ClipboardCopy size={13} /></button>
+                    <button disabled={!workoutReady || workoutBusy} onClick={() => abrirCriarFicha(undefined, t)} className={btnSec + ' px-0'} title="Usar em novo plano"><ClipboardCopy size={13} /></button>
                     <button onClick={() => abrirCriarTemplate(t)} className={btnSec + ' px-0'} title="Editar"><Pencil size={13} /></button>
                     <button onClick={() => duplicarTemplate(t)} className={btnSec + ' px-0'} title="Duplicar"><Copy size={13} /></button>
                     <button onClick={() => excluirTemplate(t)} className={btnSec + ' px-0 text-red-400'} title="Excluir"><Trash2 size={13} /></button>
@@ -1633,10 +1688,21 @@ export default function App() {
 
         {/* ================= CRIAR FICHA ================= */}
         {view === 'criarFicha' && (
-          <div className="space-y-4">
+          <fieldset disabled={workoutBusy} className="space-y-4 min-w-0">
             <div className="flex items-center justify-between gap-3">
               <button onClick={() => { setView('main'); setTab('alunos') }} className={btnSec}><ChevronLeft size={14} />Voltar</button>
-              <h2 className="text-[16px] font-extrabold">Nova Ficha</h2>
+              <h2 className="text-[16px] font-extrabold">{fEditId ? 'Editar Plano' : 'Novo Plano'}</h2>
+            </div>
+            <div className={cardCls + ' p-3 space-y-3'}>
+              <div className="flex flex-wrap gap-2" role="group" aria-label="Divisões do plano">
+                {fDivisoes.map(d => <button type="button" key={d.id} aria-pressed={d.id === fDivisaoId} onClick={() => setFDivisaoId(d.id)} className={d.id === fDivisaoId ? btnPri : btnSec}>{d.codigo} - {d.nome}</button>)}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <button type="button" onClick={adicionarDivisao} className={btnSec}><Plus size={13} />Adicionar divisão</button>
+                <button type="button" onClick={renomearDivisao} className={btnSec}><Pencil size={13} />Renomear</button>
+                <button type="button" disabled={fDivisoes.length <= 1} onClick={removerDivisaoAtual} className={btnSec}><Trash2 size={13} />Remover divisão</button>
+              </div>
+              <p className="text-[12px] text-[#aaa]">Editando {fDivisao?.codigo} - {fDivisao?.nome}. As outras divisões serão preservadas.</p>
             </div>
             <div className="grid grid-cols-1 lg:grid-cols-[42%_minmax(0,1fr)] gap-4 items-start">
               <Biblioteca
@@ -1646,17 +1712,17 @@ export default function App() {
               />
               <div className={cardCls + ' p-4 space-y-4'}>
                 <Field label="Aluno *">
-                  <select className={inputCls} value={fAluno} onChange={(e) => setFAluno(e.target.value)}>
+                  <select className={inputCls} disabled={!!fEditId} value={fAluno} onChange={(e) => selecionarAlunoFicha(e.target.value)}>
                     <option value="">Selecione o aluno</option>
                     {alunos.map((a) => <option key={a.id} value={a.id}>{a.nome}</option>)}
                   </select>
                 </Field>
-                <Field label="Nome da ficha *">
-                  <input className={inputCls} value={fNome} onChange={(e) => setFNome(e.target.value)} placeholder="Ex: Treino A - Peito e Tríceps" />
+                <Field label="Nome do plano *">
+                  <input className={inputCls} value={fNome} onChange={(e) => setFNome(e.target.value)} placeholder="Ex: Plano de hipertrofia" />
                 </Field>
-                <Field label="Carregar template">
-                  <select className={inputCls} value={fTplId} onChange={(e) => carregarTemplate(e.target.value)}>
-                    <option value="">Nenhum</option>
+                <Field label="Aplicar template apenas na divisão selecionada">
+                  <select className={inputCls} value="" onChange={(e) => carregarTemplate(e.target.value)}>
+                    <option value="">Selecione um template</option>
                     {templates.map((t) => <option key={t.id} value={t.id}>{t.nome}</option>)}
                   </select>
                 </Field>
@@ -1664,10 +1730,10 @@ export default function App() {
                   <p className={labelCls}>Exercícios ({fExs.length})</p>
                   <ListaEditor lista={fExs} setLista={setFExs} />
                 </div>
-                <button onClick={salvarFicha} disabled={!fAluno || !fNome.trim() || fExs.length === 0} className={btnPri + ' w-full'}><Save size={14} />SALVAR FICHA</button>
+                <button onClick={salvarFicha} disabled={!workoutReady || workoutBusy || !fAluno || !fNome.trim() || !fDivisoes.length} className={btnPri + ' w-full'}><Save size={14} />SALVAR PLANO</button>
               </div>
             </div>
-          </div>
+          </fieldset>
         )}
 
         {/* ================= FICHA DETALHE ================= */}
@@ -1736,7 +1802,8 @@ export default function App() {
                   </>
                 )}
               </div>
-              <button onClick={() => excluirFicha(fichaAtual)} className={btnSec + ' text-red-400'}><Trash2 size={13} /></button>
+              <button disabled={workoutBusy} onClick={() => editarFicha(fichaAtual)} className={btnSec}><Pencil size={13} />Editar plano</button>
+              <button disabled={workoutBusy} onClick={() => excluirFicha(fichaAtual)} className={btnSec + ' text-red-400'}><Trash2 size={13} /></button>
             </div>
             {exportando && <p className="text-[11px] text-[#888]">Gerando arquivo...</p>}
 
@@ -1768,7 +1835,10 @@ export default function App() {
                     </tr>
                   </thead>
                   <tbody>
-                    {fichaAtual.exercicios.map((e, i) => (
+                    {fichaAtual.divisoes.map(d => <Fragment key={d.id}>
+                      <tr className="bg-neutral-100"><th colSpan={4} className="px-3 py-3 text-[13px]">{d.codigo} - {d.nome}</th></tr>
+                      {d.exercicios.length === 0 && <tr><td colSpan={4} className="px-3 py-3 text-[12px]">Nenhum exercício nesta divisão.</td></tr>}
+                      {d.exercicios.map((e, i) => (
                       <tr key={e.id + i} className="border-b border-neutral-200">
                         <td className="px-3 py-3 align-top">
                           <button onClick={() => setExDetalhe(e)} className="text-left text-[13px] font-bold hover:underline">
@@ -1781,6 +1851,7 @@ export default function App() {
                         <td className="px-2 py-3 text-center text-[12px] align-top whitespace-nowrap">{e.descanso || '—'}</td>
                       </tr>
                     ))}
+                    </Fragment>)}
                   </tbody>
                 </table>
                 <p className="text-center text-[10px] text-neutral-400 mt-4 uppercase tracking-[0.15em]">Treino profissional. Resultados reais.</p>
@@ -1873,7 +1944,7 @@ export default function App() {
                 </div>
               ) : null
             })()}
-            <button onClick={confirmarAnexo} disabled={!anexar.alunoId || !anexar.templateId} className={btnPri + ' w-full'}><Paperclip size={14} />ANEXAR AO ALUNO</button>
+            <button onClick={confirmarAnexo} disabled={!workoutReady || workoutBusy || !anexar.alunoId || !anexar.templateId} className={btnPri + ' w-full'}><Paperclip size={14} />ANEXAR AO ALUNO</button>
           </div>
         </Modal>
       )}
