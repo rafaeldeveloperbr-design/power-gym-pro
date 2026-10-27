@@ -12,6 +12,8 @@ import { Filesystem, Directory } from '@capacitor/filesystem'
 import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
 
+import { supabase } from './lib/supabase'
+
 /* =========================================================
    TIPOS
    ========================================================= */
@@ -457,13 +459,15 @@ const carregarLocal = <T,>(chave: string, inicial: T): T => {
 
 
 export default function App() {
+
   /* ---------- auth ---------- */
   const [logado, setLogado] = useState(false)
-  const [authMode, setAuthMode] = useState<'login' | 'signup'>('login')
-  const [authNome, setAuthNome] = useState('')
-  const [email, setEmail] = useState('giovane@powergym.com')
+  const [authCarregando, setAuthCarregando] = useState(true)
+  const [authEnviando, setAuthEnviando] = useState(false)
+  const [email, setEmail] = useState('')
   const [senha, setSenha] = useState('')
   const [authErro, setAuthErro] = useState('')
+
 
   /* ---------- dados ---------- */
 
@@ -486,19 +490,19 @@ export default function App() {
   const [categorias, setCategorias] = useState<Grupo[]>(() =>
     carregarLocal('pgp_categorias', CATEGORIAS_INICIAIS)
   )
-  
-  
-useEffect(() => {
-  try {
-    localStorage.setItem('pgp_alunos', JSON.stringify(alunos))
-    localStorage.setItem('pgp_fichas', JSON.stringify(fichas))
-    localStorage.setItem('pgp_templates', JSON.stringify(templates))
-    localStorage.setItem('pgp_biblioteca', JSON.stringify(biblioteca))
-    localStorage.setItem('pgp_categorias', JSON.stringify(categorias))
-  } catch (erro) {
-    console.error('Erro ao salvar dados locais:', erro)
-  }
-}, [alunos, fichas, templates, biblioteca, categorias])
+
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('pgp_alunos', JSON.stringify(alunos))
+      localStorage.setItem('pgp_fichas', JSON.stringify(fichas))
+      localStorage.setItem('pgp_templates', JSON.stringify(templates))
+      localStorage.setItem('pgp_biblioteca', JSON.stringify(biblioteca))
+      localStorage.setItem('pgp_categorias', JSON.stringify(categorias))
+    } catch (erro) {
+      console.error('Erro ao salvar dados locais:', erro)
+    }
+  }, [alunos, fichas, templates, biblioteca, categorias])
 
 
   /* ---------- navegação ---------- */
@@ -543,12 +547,112 @@ useEffect(() => {
 
   useEffect(() => { window.scrollTo({ top: 0 }) }, [view, tab])
 
+
   /* ---------- AUTH ---------- */
-  const entrar = () => {
-    if (!email.trim() || !senha.trim()) return setAuthErro('Informe e-mail e senha.')
-    if (authMode === 'signup' && !authNome.trim()) return setAuthErro('Informe seu nome.')
+
+  const validarSessao = async () => {
+    const { data: { user }, error } = await supabase.auth.getUser()
+
+    if (error || !user) {
+      setLogado(false)
+      setAuthCarregando(false)
+      return
+    }
+
+    const { data: funcionario, error: perfilErro } = await supabase
+      .from('funcionarios')
+      .select('id, nome, papel, ativo')
+      .eq('id', user.id)
+      .maybeSingle()
+
+    if (perfilErro || !funcionario || !funcionario.ativo) {
+      setLogado(false)
+      setAuthErro(
+        perfilErro
+          ? 'Não foi possível validar suas permissões.'
+          : 'Usuário não autorizado. Procure o administrador.'
+      )
+      await supabase.auth.signOut()
+      setAuthCarregando(false)
+      return
+    }
+
     setAuthErro('')
     setLogado(true)
+    setAuthCarregando(false)
+  }
+
+  useEffect(() => {
+    void validarSessao()
+
+    const { data: { subscription } } =
+      supabase.auth.onAuthStateChange((evento) => {
+        // Evita executar consultas Supabase dentro do callback.
+        if (evento === 'SIGNED_OUT') {
+          setLogado(false)
+        }
+
+        if (evento === 'SIGNED_IN' || evento === 'TOKEN_REFRESHED') {
+          queueMicrotask(() => {
+            void validarSessao()
+          })
+        }
+      })
+
+    return () => subscription.unsubscribe()
+  }, [])
+
+  const entrar = async () => {
+    if (authEnviando) return
+
+    if (!email.trim() || !senha) {
+      setAuthErro('Informe e-mail e senha.')
+      return
+    }
+
+    setAuthEnviando(true)
+    setAuthErro('')
+
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password: senha,
+      })
+
+      if (error) {
+        setAuthErro('E-mail ou senha inválidos.')
+        return
+      }
+
+      await validarSessao()
+      setSenha('')
+    } catch {
+      setAuthErro('Erro de conexão. Tente novamente.')
+    } finally {
+      setAuthEnviando(false)
+    }
+  }
+
+  const sair = async () => {
+    const { error } = await supabase.auth.signOut()
+
+    if (error) {
+      setAuthErro('Não foi possível encerrar a sessão.')
+      return
+    }
+
+    setLogado(false)
+    setSenha('')
+  }
+
+  if (authCarregando) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#080808] text-white">
+        <p className="text-sm text-[#888]">
+          Verificando acesso...
+        </p>
+      </div>
+    )
   }
 
   if (!logado) {
@@ -558,14 +662,20 @@ useEffect(() => {
           <div className="flex justify-center mb-10"><LogoText size="large" variant="dark" /></div>
           <div className={cardCls + ' p-6 space-y-4'}>
             <div>
-              <h1 className="text-[18px] font-extrabold">{authMode === 'login' ? 'Painel do Treinador' : 'Criar conta'}</h1>
+              <h1 className="text-[18px] font-extrabold">
+                Acesso do Treinador
+              </h1>
               <p className="text-[12px] text-[#888] mt-1">Treino profissional. Resultados reais.</p>
             </div>
-            {authMode === 'signup' && (
-              <Field label="Nome">
-                <input className={inputCls} value={authNome} onChange={(e) => setAuthNome(e.target.value)} placeholder="Seu nome" />
-              </Field>
-            )}
+
+            <button
+              onClick={entrar}
+              disabled={authEnviando}
+              className={btnPri + ' w-full'}
+            >
+              {authEnviando ? 'ENTRANDO...' : 'ENTRAR'}
+            </button>
+
             <Field label="E-mail">
               <input className={inputCls} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="voce@email.com" />
             </Field>
@@ -577,12 +687,12 @@ useEffect(() => {
               />
             </Field>
             {authErro && <p className="text-[12px] text-red-400">{authErro}</p>}
-            <button onClick={entrar} className={btnPri + ' w-full'}>{authMode === 'login' ? 'ENTRAR' : 'CRIAR CONTA'}</button>
+            
             <button
-              onClick={() => { setAuthMode(authMode === 'login' ? 'signup' : 'login'); setAuthErro('') }}
+              
               className="w-full text-[12px] text-[#888] hover:text-white transition"
             >
-              {authMode === 'login' ? 'Não tem conta? Cadastre-se' : 'Já tem conta? Entrar'}
+              
             </button>
           </div>
         </div>
@@ -976,7 +1086,7 @@ useEffect(() => {
                 {t.icon}<span className="hidden sm:inline">{t.label}</span>
               </button>
             ))}
-            <button onClick={() => setLogado(false)} title="Sair" className="h-9 w-9 rounded-[10px] bg-[#1A1A1A] border border-[#222] text-[#888] hover:text-white flex items-center justify-center">
+            <button onClick={() => void sair()} title="Sair" className="h-9 w-9 rounded-[10px] bg-[#1A1A1A] border border-[#222] text-[#888] hover:text-white flex items-center justify-center">
               <LogOut size={14} />
             </button>
           </nav>
