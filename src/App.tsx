@@ -445,6 +445,17 @@ type View = 'main' | 'criarTemplate' | 'criarFicha' | 'ficha'
 const FORM_ALUNO = { nome: '', objetivo: 'HIPERTROFIA' as Objetivo, whatsapp: '', peso: '', altura: '', observacoes: '' }
 const FORM_EX = { nome: '', grupo: '', equipamento: '', foco: '', instrucoes: '', video_url: '', gif_url: '' }
 
+
+const carregarLocal = <T,>(chave: string, inicial: T): T => {
+  try {
+    const salvo = localStorage.getItem(chave)
+    return salvo ? JSON.parse(salvo) as T : inicial
+  } catch {
+    return inicial
+  }
+}
+
+
 export default function App() {
   /* ---------- auth ---------- */
   const [logado, setLogado] = useState(false)
@@ -455,11 +466,40 @@ export default function App() {
   const [authErro, setAuthErro] = useState('')
 
   /* ---------- dados ---------- */
-  const [alunos, setAlunos] = useState<Aluno[]>(ALUNOS_INICIAIS)
-  const [fichas, setFichas] = useState<Ficha[]>(FICHAS_INICIAIS)
-  const [templates, setTemplates] = useState<Template[]>(TEMPLATES_INICIAIS)
-  const [biblioteca, setBiblioteca] = useState<Exercicio[]>(BASE)
-  const [categorias, setCategorias] = useState<Grupo[]>(CATEGORIAS_INICIAIS)
+
+  const [alunos, setAlunos] = useState<Aluno[]>(() =>
+    carregarLocal('pgp_alunos', ALUNOS_INICIAIS)
+  )
+
+  const [fichas, setFichas] = useState<Ficha[]>(() =>
+    carregarLocal('pgp_fichas', FICHAS_INICIAIS)
+  )
+
+  const [templates, setTemplates] = useState<Template[]>(() =>
+    carregarLocal('pgp_templates', TEMPLATES_INICIAIS)
+  )
+
+  const [biblioteca, setBiblioteca] = useState<Exercicio[]>(() =>
+    carregarLocal('pgp_biblioteca', BASE)
+  )
+
+  const [categorias, setCategorias] = useState<Grupo[]>(() =>
+    carregarLocal('pgp_categorias', CATEGORIAS_INICIAIS)
+  )
+  
+  
+useEffect(() => {
+  try {
+    localStorage.setItem('pgp_alunos', JSON.stringify(alunos))
+    localStorage.setItem('pgp_fichas', JSON.stringify(fichas))
+    localStorage.setItem('pgp_templates', JSON.stringify(templates))
+    localStorage.setItem('pgp_biblioteca', JSON.stringify(biblioteca))
+    localStorage.setItem('pgp_categorias', JSON.stringify(categorias))
+  } catch (erro) {
+    console.error('Erro ao salvar dados locais:', erro)
+  }
+}, [alunos, fichas, templates, biblioteca, categorias])
+
 
   /* ---------- navegação ---------- */
   const [tab, setTab] = useState<Tab>('alunos')
@@ -778,7 +818,7 @@ export default function App() {
           )
         })
       } else {
-        
+
         const pdf = new jsPDF('p', 'mm', 'a4')
 
         const pw = 210, ph = 297
