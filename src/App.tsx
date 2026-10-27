@@ -724,6 +724,30 @@ export default function App() {
     setModalAluno(false)
   }
 
+
+  const excluirAluno = (aluno: Aluno) => {
+    const quantidade = fichas.filter(
+      f => f.alunoId === aluno.id
+    ).length
+
+    const mensagem = quantidade > 0
+      ? `Excluir o aluno "${aluno.nome}" e suas ${quantidade} ficha(s)?\n\nEsta ação não poderá ser desfeita.`
+      : `Excluir o aluno "${aluno.nome}"?\n\nEsta ação não poderá ser desfeita.`
+
+    if (!window.confirm(mensagem)) return
+
+    setFichas(prev =>
+      prev.filter(f => f.alunoId !== aluno.id)
+    )
+
+    setAlunos(prev =>
+      prev.filter(a => a.id !== aluno.id)
+    )
+
+    setFichaId(null)
+  }
+
+
   /* ---------- AÇÕES: exercícios ---------- */
   const abrirModalEx = (ex: Exercicio | null) => {
     setFormEx(
@@ -1147,6 +1171,17 @@ export default function App() {
                       <div className="min-w-0">
                         <p className="text-[15px] font-extrabold truncate">{a.nome}</p>
                         <p className="text-[10px] uppercase tracking-[0.12em] text-[#888] font-semibold">{a.objetivo}</p>
+
+                        <button
+                          type="button"
+                          onClick={() => excluirAluno(a)}
+                          title={`Excluir ${a.nome}`}
+                          aria-label={`Excluir aluno ${a.nome}`}
+                          className="ml-auto shrink-0 w-9 h-9 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 flex items-center justify-center"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+
                       </div>
                     </div>
                     <div className="flex items-center gap-4 mt-4 text-[12px] text-[#bbb]">
