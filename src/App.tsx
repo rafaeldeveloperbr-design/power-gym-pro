@@ -13,6 +13,7 @@ import html2canvas from 'html2canvas'
 import { jsPDF } from 'jspdf'
 
 import { supabase } from './lib/supabase'
+import { loadCatalog, saveRemoteTemplate, remoteError } from './lib/catalog'
 
 
 /* =========================================================
@@ -473,8 +474,13 @@ export default function App() {
   const [alunosRemotos, setAlunosRemotos] = useState<Aluno[]>([])
   const [consultandoAlunos, setConsultandoAlunos] = useState(false)
   const [erroConsultaAlunos, setErroConsultaAlunos] = useState('')
-  const [testandoBiblioteca, setTestandoBiblioteca] = useState(false)
-  const [resultadoBiblioteca, setResultadoBiblioteca] = useState('')
+  const [catalogLoading, setCatalogLoading] = useState(true)
+  const [catalogError, setCatalogError] = useState('')
+  const [catalogReady, setCatalogReady] = useState(false)
+  const [catalogBusy, setCatalogBusy] = useState(false)
+  const catalogLock = useRef(false)
+  const catalogSession = useRef(0)
+  const [catalogRetry, setCatalogRetry] = useState(0)
   const [salvandoAluno, setSalvandoAluno] = useState(false)
   const [erroSalvarAluno, setErroSalvarAluno] = useState('')
 
@@ -488,29 +494,42 @@ export default function App() {
     carregarLocal('pgp_fichas', FICHAS_INICIAIS)
   )
 
-  const [templates, setTemplates] = useState<Template[]>(() =>
-    carregarLocal('pgp_templates', TEMPLATES_INICIAIS)
-  )
+  const [templates, setTemplates] = useState<Template[]>([])
+  const [biblioteca, setBiblioteca] = useState<Exercicio[]>([])
+  const [categorias, setCategorias] = useState<Grupo[]>([])
 
-  const [biblioteca, setBiblioteca] = useState<Exercicio[]>(() =>
-    carregarLocal('pgp_biblioteca', BASE)
-  )
+  useEffect(() => {
+    const session = ++catalogSession.current
+    setTemplates([]); setBiblioteca([]); setCategorias([])
+    setCatalogReady(false); setCatalogError(''); setCatalogLoading(logado)
+    if (!logado) return
+    let cancelled = false
+    loadCatalog().then(data => {
+      if (cancelled || session !== catalogSession.current) return
+      setBiblioteca(data.exercises); setCategorias(data.categories); setTemplates(data.templates as Template[])
+      setCatalogReady(true)
+    }).catch(error => {
+      if (!cancelled) setCatalogError(remoteError(error))
+    }).finally(() => { if (!cancelled) setCatalogLoading(false) })
+    return () => { cancelled = true; ++catalogSession.current }
+  }, [logado, catalogRetry])
 
-  const [categorias, setCategorias] = useState<Grupo[]>(() =>
-    carregarLocal('pgp_categorias', CATEGORIAS_INICIAIS)
-  )
-
+  const catalogWrite = async (operation: (commit: (change: () => void) => void) => Promise<void>) => {
+    if (catalogLock.current || !catalogReady) return
+    const session = catalogSession.current
+    catalogLock.current = true; setCatalogBusy(true)
+    try { await operation(change => { if (session === catalogSession.current) change() }) }
+    catch (error) { if (session === catalogSession.current) window.alert(remoteError(error)) }
+    finally { catalogLock.current = false; setCatalogBusy(false) }
+  }
 
   useEffect(() => {
     try {
       localStorage.setItem('pgp_fichas', JSON.stringify(fichas))
-      localStorage.setItem('pgp_templates', JSON.stringify(templates))
-      localStorage.setItem('pgp_biblioteca', JSON.stringify(biblioteca))
-      localStorage.setItem('pgp_categorias', JSON.stringify(categorias))
     } catch (erro) {
       console.error('Erro ao salvar dados locais:', erro)
     }
-  }, [alunos, fichas, templates, biblioteca, categorias])
+  }, [fichas])
 
 
   /* ---------- navegação ---------- */
@@ -909,97 +928,6 @@ export default function App() {
   }
 
 
-  const testarBibliotecaSupabase = async () => {
-    setTestandoBiblioteca(true)
-    setResultadoBiblioteca('')
-
-    try {
-      const [resultadoEx, resultadoCat] = await Promise.all([
-        supabase
-          .from('biblioteca_exercicios')
-          .select('id', { count: 'exact', head: true }),
-
-        supabase
-          .from('categorias_exercicios')
-          .select('nome', { count: 'exact', head: true }),
-      ])
-
-      if (resultadoEx.error) throw resultadoEx.error
-      if (resultadoCat.error) throw resultadoCat.error
-
-      setResultadoBiblioteca(
-        `Supabase conectado! Exercícios: ${resultadoEx.count ?? 0} | Categorias: ${resultadoCat.count ?? 0}`
-      )
-    } catch (erro) {
-      console.error('Erro ao consultar biblioteca:', erro)
-      setResultadoBiblioteca(
-        'Erro ao consultar biblioteca ou categorias no Supabase.'
-      )
-    } finally {
-      setTestandoBiblioteca(false)
-    }
-  }
-
-
-  const importarBibliotecaInicial = async () => {
-    if (testandoBiblioteca) return
-
-    if (!window.confirm(
-      'Importar os 100 exercícios e as 7 categorias iniciais para o Supabase?'
-    )) return
-
-    setTestandoBiblioteca(true)
-    setResultadoBiblioteca('Importando biblioteca...')
-
-    try {
-      // Primeiro importar as categorias.
-      const { error: erroCategorias } = await supabase
-        .from('categorias_exercicios')
-        .upsert(
-          CATEGORIAS_INICIAIS.map(nome => ({ nome })),
-          { onConflict: 'nome', ignoreDuplicates: true }
-        )
-
-      if (erroCategorias) throw erroCategorias
-
-      // Depois importar os exercícios.
-      const { error: erroExercicios } = await supabase
-        .from('biblioteca_exercicios')
-        .upsert(
-          BASE.map(exercicio => ({ ...exercicio })),
-          { onConflict: 'id', ignoreDuplicates: true }
-        )
-
-      if (erroExercicios) throw erroExercicios
-
-      // Conferir os totais no banco.
-      const [resultadoEx, resultadoCat] = await Promise.all([
-        supabase
-          .from('biblioteca_exercicios')
-          .select('id', { count: 'exact', head: true }),
-        supabase
-          .from('categorias_exercicios')
-          .select('nome', { count: 'exact', head: true }),
-      ])
-
-      if (resultadoEx.error) throw resultadoEx.error
-      if (resultadoCat.error) throw resultadoCat.error
-
-      setResultadoBiblioteca(
-        `Importação concluída! Exercícios: ${resultadoEx.count ?? 0} | Categorias: ${resultadoCat.count ?? 0}`
-      )
-    } catch (erro) {
-      console.error('Erro na importação:', erro)
-      setResultadoBiblioteca(
-        'Falha na importação. Confira o console antes de tentar novamente.'
-      )
-    } finally {
-      setTestandoBiblioteca(false)
-    }
-  }
-
-
-  /* ---------- AÇÕES: exercícios ---------- */
   const abrirModalEx = (ex: Exercicio | null) => {
     setFormEx(
       ex
@@ -1008,56 +936,62 @@ export default function App() {
     )
     setModalEx({ editing: ex })
   }
-  const salvarEx = () => {
+  const salvarEx = async () => {
     if (!formEx.nome.trim() || !modalEx) return
+    const editing = modalEx.editing
     const dados = {
-      nome: formEx.nome.trim(), grupo: formEx.grupo || categorias[0] || 'Geral', equipamento: formEx.equipamento.trim(),
+      nome: formEx.nome.trim(), grupo: formEx.grupo || categorias[0], equipamento: formEx.equipamento.trim(),
       foco: formEx.foco.trim(), instrucoes: formEx.instrucoes.trim(),
       video_url: formEx.video_url.trim() || null, gif_url: formEx.gif_url.trim() || null,
     }
-    if (modalEx.editing) {
-      const id = modalEx.editing.id
-      setBiblioteca(biblioteca.map((e) => (e.id === id ? { ...e, ...dados } : e)))
-    } else {
-      setBiblioteca([...biblioteca, { id: 'ex' + Date.now(), ...dados }])
-    }
-    setModalEx(null)
+    await catalogWrite(async commit => {
+      if (!dados.grupo || !categorias.includes(dados.grupo)) throw new Error('Selecione uma categoria válida.')
+      if (biblioteca.some(e => e.id !== editing?.id && norm(e.nome) === norm(dados.nome))) throw new Error('Já existe um exercício com esse nome.')
+      const query = editing
+        ? supabase.from('biblioteca_exercicios').update(dados).eq('id', editing.id)
+        : supabase.from('biblioteca_exercicios').insert({ ...dados, id: crypto.randomUUID() })
+      const { data, error } = await query.select().single()
+      if (error) throw error
+      commit(() => {
+        setBiblioteca(prev => editing ? prev.map(e => e.id === editing.id ? data as Exercicio : e) : [...prev, data as Exercicio])
+        setModalEx(null)
+      })
+    })
   }
-  const excluirEx = (e: Exercicio) => {
-    if (window.confirm(`Excluir "${e.nome}" da biblioteca?`)) setBiblioteca(biblioteca.filter((x) => x.id !== e.id))
+  const excluirEx = async (e: Exercicio) => {
+    if (!window.confirm(`Excluir "${e.nome}" da biblioteca?`)) return
+    await catalogWrite(async commit => {
+      const { error } = await supabase.from('biblioteca_exercicios').delete().eq('id', e.id).select('id').single()
+      if (error) throw error
+      commit(() => setBiblioteca(prev => prev.filter(x => x.id !== e.id)))
+    })
   }
-  const criarCategoria = () => {
-    const n = novaCat.trim()
-    if (!n) return
-    if (!categorias.some((c) => norm(c) === norm(n))) setCategorias([...categorias, n])
-    setNovaCat('')
+  const criarCategoria = async () => {
+    const nome = novaCat.trim()
+    if (!nome) return
+    await catalogWrite(async commit => {
+      if (categorias.some(c => norm(c) === norm(nome))) throw new Error('Já existe uma categoria com esse nome.')
+      const { data, error } = await supabase.from('categorias_exercicios').insert({ nome }).select('nome').single()
+      if (error) throw error
+      commit(() => { setCategorias(prev => [...prev, data.nome]); setNovaCat('') })
+    })
   }
-
-
-  const excluirCategoria = (categoria: Grupo) => {
-    const emUso = biblioteca.some(
-      e => e.grupo === categoria
-    )
-
-    if (emUso) {
-      window.alert(
-        `A categoria "${categoria}" possui exercícios associados. ` +
-        'Mova esses exercícios para outra categoria antes de excluir.'
-      )
+  const excluirCategoria = async (categoria: Grupo) => {
+    if (biblioteca.some(e => e.grupo === categoria)) {
+      window.alert(`A categoria "${categoria}" possui exercícios associados. Mova esses exercícios para outra categoria antes de excluir.`)
       return
     }
-
-    if (!window.confirm(`Excluir a categoria "${categoria}"?`)) {
-      return
-    }
-
-    setCategorias(prev =>
-      prev.filter(c => c !== categoria)
-    )
+    if (!window.confirm(`Excluir a categoria "${categoria}"?`)) return
+    await catalogWrite(async commit => {
+      const { error } = await supabase.rpc('pgp_delete_category', { p_nome: categoria })
+      if (error) throw error
+      commit(() => {
+        setCategorias(prev => prev.filter(c => c !== categoria))
+        setGEx(prev => prev === categoria ? 'Todos' : prev)
+      })
+    })
   }
 
-
-  /* ---------- AÇÕES: templates ---------- */
   const abrirCriarTemplate = (t?: Template) => {
     setTplId(t ? t.id : null)
     setTplNome(t ? t.nome : '')
@@ -1067,20 +1001,33 @@ export default function App() {
     setTplExs(t ? clone(t.exercicios) : [])
     setView('criarTemplate')
   }
-  const salvarTemplate = () => {
-    if (!tplNome.trim() || tplExs.length === 0) return
-    const base = { nome: tplNome.trim(), nivel: tplNivel, objetivo: tplObj, descricao: tplDesc.trim(), exercicios: tplExs }
-    if (tplId) setTemplates(templates.map((t) => (t.id === tplId ? { ...t, ...base } : t)))
-    else setTemplates([...templates, { id: 't' + Date.now(), ...base, dataCriacao: hoje() }])
-    setView('main'); setTab('templates')
+  const persistTemplate = async (template: Template, editing: boolean, commit: (change: () => void) => void) => {
+    if (templates.some(t => t.id !== (editing ? template.id : null) && norm(t.nome) === norm(template.nome))) throw new Error('Já existe um template com esse nome.')
+    const saved = await saveRemoteTemplate(template, editing) as Template
+    commit(() => setTemplates(prev => editing ? prev.map(t => t.id === saved.id ? saved : t) : [...prev, saved]))
   }
-  const duplicarTemplate = (t: Template) =>
-    setTemplates([...templates, { ...t, id: 't' + Date.now(), nome: t.nome + ' (cópia)', exercicios: clone(t.exercicios), dataCriacao: hoje() }])
-  const excluirTemplate = (t: Template) => {
-    if (window.confirm(`Excluir o template "${t.nome}"?`)) setTemplates(templates.filter((x) => x.id !== t.id))
+  const salvarTemplate = async () => {
+    if (!tplNome.trim() || tplExs.length === 0) return
+    const template: Template = { id: tplId || crypto.randomUUID(), nome: tplNome.trim(), nivel: tplNivel, objetivo: tplObj, descricao: tplDesc.trim(), exercicios: clone(tplExs), dataCriacao: templates.find(t => t.id === tplId)?.dataCriacao || hoje() }
+    await catalogWrite(async commit => {
+      await persistTemplate(template, !!tplId, commit)
+      commit(() => { setView('main'); setTab('templates') })
+    })
+  }
+  const duplicarTemplate = async (t: Template) => {
+    let nome = t.nome + ' (cópia)', numero = 2
+    while (templates.some(item => norm(item.nome) === norm(nome))) nome = `${t.nome} (cópia ${numero++})`
+    await catalogWrite(commit => persistTemplate({ ...t, id: crypto.randomUUID(), nome, exercicios: clone(t.exercicios), dataCriacao: hoje() }, false, commit))
+  }
+  const excluirTemplate = async (t: Template) => {
+    if (!window.confirm(`Excluir o template "${t.nome}"?`)) return
+    await catalogWrite(async commit => {
+      const { error } = await supabase.from('templates').delete().eq('id', t.id).select('id').single()
+      if (error) throw error
+      commit(() => setTemplates(prev => prev.filter(x => x.id !== t.id)))
+    })
   }
 
-  /* ---------- AÇÕES: fichas ---------- */
   const abrirCriarFicha = (alunoId?: string, t?: Template) => {
     setFAluno(alunoId ?? '')
     setFNome(t ? t.nome : '')
@@ -1409,6 +1356,9 @@ export default function App() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 py-6 pb-16">
+        {catalogLoading && <p role="status">Carregando biblioteca, categorias e templates...</p>}
+        {catalogError && <div role="alert" className="mb-4 text-red-400">{catalogError} <button className={btnSec} onClick={() => setCatalogRetry(n => n + 1)}>Tentar novamente</button></div>}
+        {catalogBusy && <p role="status">Salvando alterações...</p>}
         {/* ================= ALUNOS ================= */}
         {view === 'main' && tab === 'alunos' && (
           <div className="space-y-6">
@@ -1605,40 +1555,6 @@ export default function App() {
               <div>
                 <h2 className="text-[20px] font-extrabold">Biblioteca de Exercícios</h2>
 
-                <div className="rounded-xl border border-[#333] bg-[#121212] p-4 space-y-3">
-                  <p className="text-sm font-bold">
-                    Teste da biblioteca Supabase
-                  </p>
-
-                  <button
-                    type="button"
-                    onClick={() => void testarBibliotecaSupabase()}
-                    disabled={testandoBiblioteca}
-                    className={btnSec}
-                  >
-                    {testandoBiblioteca
-                      ? 'Consultando...'
-                      : 'Testar conexão da biblioteca'}
-                  </button>
-
-
-                  <button
-                    type="button"
-                    onClick={() => void importarBibliotecaInicial()}
-                    disabled={testandoBiblioteca}
-                    className={btnSec + ' ml-2'}
-                  >
-                    Importar biblioteca inicial
-                  </button>
-
-
-                  {resultadoBiblioteca && (
-                    <p className="text-xs text-[#AAA]">
-                      {resultadoBiblioteca}
-                    </p>
-                  )}
-                </div>
-
                 <p className="text-[12px] text-[#888] mt-1">{biblioteca.length} exercícios • {categorias.length} categorias</p>
               </div>
               <div className="flex gap-2">
@@ -1709,7 +1625,7 @@ export default function App() {
                   <p className={labelCls}>Exercícios ({tplExs.length})</p>
                   <ListaEditor lista={tplExs} setLista={setTplExs} />
                 </div>
-                <button onClick={salvarTemplate} disabled={!tplNome.trim() || tplExs.length === 0} className={btnPri + ' w-full'}><Save size={14} />SALVAR TEMPLATE</button>
+                <button onClick={salvarTemplate} disabled={!catalogReady || catalogBusy || !tplNome.trim() || tplExs.length === 0} className={btnPri + ' w-full'}><Save size={14} />SALVAR TEMPLATE</button>
               </div>
             </div>
           </div>
@@ -1991,7 +1907,7 @@ export default function App() {
             <Field label="GIF URL">
               <input className={inputCls} value={formEx.gif_url} onChange={(e) => setFormEx({ ...formEx, gif_url: e.target.value })} placeholder="Deixe em branco" />
             </Field>
-            <button onClick={salvarEx} disabled={!formEx.nome.trim()} className={btnPri + ' w-full'}>{modalEx.editing ? 'SALVAR ALTERAÇÕES' : 'CRIAR EXERCÍCIO'}</button>
+            <button onClick={salvarEx} disabled={!catalogReady || catalogBusy || !formEx.nome.trim()} className={btnPri + ' w-full'}>{modalEx.editing ? 'SALVAR ALTERAÇÕES' : 'CRIAR EXERCÍCIO'}</button>
           </div>
         </Modal>
       )}
@@ -2021,6 +1937,7 @@ export default function App() {
 
                     <button
                       type="button"
+                      disabled={!catalogReady || catalogBusy}
                       onClick={() => excluirCategoria(c)}
                       title={`Excluir categoria ${c}`}
                       aria-label={`Excluir categoria ${c}`}
@@ -2033,7 +1950,7 @@ export default function App() {
 
               </div>
             </div>
-            <button onClick={criarCategoria} disabled={!novaCat.trim()} className={btnPri + ' w-full'}>CRIAR CATEGORIA</button>
+            <button onClick={criarCategoria} disabled={!catalogReady || catalogBusy || !novaCat.trim()} className={btnPri + ' w-full'}>CRIAR CATEGORIA</button>
           </div>
         </Modal>
       )}
