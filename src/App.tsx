@@ -825,27 +825,35 @@ export default function App() {
 
 
 
-  const excluirAluno = (aluno: Aluno) => {
-    const quantidade = fichas.filter(
-      f => f.alunoId === aluno.id
-    ).length
 
-    const mensagem = quantidade > 0
-      ? `Excluir o aluno "${aluno.nome}" e suas ${quantidade} ficha(s)?\n\nEsta ação não poderá ser desfeita.`
-      : `Excluir o aluno "${aluno.nome}"?\n\nEsta ação não poderá ser desfeita.`
-
-    if (!window.confirm(mensagem)) return
-
-    setFichas(prev =>
-      prev.filter(f => f.alunoId !== aluno.id)
+  const excluirAluno = async (aluno: Aluno) => {
+    const confirmou = window.confirm(
+      `Excluir o aluno "${aluno.nome}" e todas as suas fichas de treino?\n\nEsta ação não poderá ser desfeita.`
     )
 
-    setAlunos(prev =>
-      prev.filter(a => a.id !== aluno.id)
-    )
+    if (!confirmou) return
 
-    setFichaId(null)
+    try {
+      const { error } = await supabase
+        .from('alunos')
+        .delete()
+        .eq('id', aluno.id)
+        .select('id')
+
+      if (error) throw error
+
+      setFichaId(null)
+      setFichas(prev =>
+        prev.filter(f => f.alunoId !== aluno.id)
+      )
+
+      await consultarAlunosSupabase()
+    } catch (erro) {
+      console.error('Erro ao excluir aluno:', erro)
+      window.alert('Não foi possível excluir o aluno.')
+    }
   }
+
 
 
   /* ---------- AÇÕES: exercícios ---------- */
